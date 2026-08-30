@@ -1,0 +1,1 @@
+"""Módulo core de configuración, seguridad y modelos."""
