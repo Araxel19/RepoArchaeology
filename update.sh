@@ -17,17 +17,11 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo -e "${BOLD}${BLUE}Actualizando RepoArchaeology...${RESET}\n"
 
-# 1. Sincronizar repositorio Git
-echo -e "${CYAN}[1/3] Descargando últimos cambios de Git...${RESET}"
+# 1. Sincronizar repositorio Git desde la rama estable main
+echo -e "${CYAN}[1/3] Descargando últimos cambios estables desde origin/main...${RESET}"
 cd "${PROJECT_DIR}"
-BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
-
-if git rev-parse --abbrev-ref "@{u}" &>/dev/null; then
-    git pull --quiet 2>/dev/null || true
-else
-    git pull origin "${BRANCH}" --quiet 2>/dev/null || true
-fi
-echo -e "  ${GREEN}✓ Código fuente sincronizado (rama: ${BRANCH}).${RESET}"
+git pull origin main --ff-only --quiet 2>/dev/null || true
+echo -e "  ${GREEN}✓ Código fuente sincronizado con la rama main.${RESET}"
 
 # 2. Actualizar entorno virtual
 echo -e "\n${CYAN}[2/3] Actualizando dependencias en el entorno aislado...${RESET}"
