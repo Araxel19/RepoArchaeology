@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "repoarchaeology"
-version = "0.1.1"
+version = "0.1.2"
 description = "Herramienta de análisis forense de repositorios, linaje de decisiones y detección de deuda técnica oculta."
 readme = "README.md"
 authors = [
