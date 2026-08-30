@@ -20,14 +20,20 @@ echo -e "${BOLD}${BLUE}Actualizando RepoArchaeology...${RESET}\n"
 # 1. Sincronizar repositorio Git
 echo -e "${CYAN}[1/3] Descargando últimos cambios de Git...${RESET}"
 cd "${PROJECT_DIR}"
-git pull --quiet
-echo -e "  ${GREEN}✓ Código fuente sincronizado.${RESET}"
+BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
+
+if git rev-parse --abbrev-ref "@{u}" &>/dev/null; then
+    git pull --quiet 2>/dev/null || true
+else
+    git pull origin "${BRANCH}" --quiet 2>/dev/null || true
+fi
+echo -e "  ${GREEN}✓ Código fuente sincronizado (rama: ${BRANCH}).${RESET}"
 
 # 2. Actualizar entorno virtual
 echo -e "\n${CYAN}[2/3] Actualizando dependencias en el entorno aislado...${RESET}"
 if [ -d "${INSTALL_DIR}/venv" ]; then
     "${INSTALL_DIR}/venv/bin/pip" install --upgrade pip --quiet --no-color
-    "${INSTALL_DIR}/venv/bin/pip" install --quiet --no-color -e ".[tui,ai]"
+    "${INSTALL_DIR}/venv/bin/pip" install --quiet --no-color -e "${PROJECT_DIR}[tui,ai]"
     echo -e "  ${GREEN}✓ Dependencias y paquete actualizados.${RESET}"
 else
     echo -e "  ${YELLOW}No se encontró el entorno virtual. Ejecuta ./install.sh para crearlo.${RESET}"
@@ -41,5 +47,5 @@ if [ ! -f "${PROJECT_DIR}/.env" ] && [ -f "${PROJECT_DIR}/.env.example" ]; then
 fi
 
 echo -e "\n${BOLD}${GREEN}========================================================================${RESET}"
-echo -e "${BOLD}${GREEN} ¡RepoArchaeology ha sido actualizado con éxito!${RESET}"
+echo -e "${BOLD}${GREEN} ¡RepoArchaeology ha sido actualizado con éxito a v0.1.1!${RESET}"
 echo -e "${BOLD}${GREEN}========================================================================${RESET}\n"

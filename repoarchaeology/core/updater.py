@@ -15,20 +15,49 @@ from rich.prompt import Confirm
 
 console = Console()
 CACHE_FILE = Path.home() / ".local" / "share" / "repoarchaeology" / ".update_check.json"
-CHECK_INTERVAL_SECONDS = 43200  # Verificar máximo 1 vez cada 12 horas para no ralentizar la CLI
+CHECK_INTERVAL_SECONDS = 43200  # Máximo 1 verificación cada 12 horas para no ralentizar la CLI
 
 
 def get_repo_dir() -> Optional[Path]:
     """Obtiene la ruta del repositorio fuente instalado."""
-    # 1. Si estamos ejecutando desde el código fuente
     current_dir = Path(__file__).resolve().parent.parent.parent
     if (current_dir / ".git").exists():
         return current_dir
-    # 2. Ruta por defecto en Proyectos
     default_proj = Path.home() / "Proyectos" / "RepoArchaeology"
     if (default_proj / ".git").exists():
         return default_proj
     return None
+
+
+def get_current_branch(repo_dir: Path) -> str:
+    """Detecta la rama actual activa."""
+    try:
+        res = subprocess.run(
+            ["git", "-C", str(repo_dir), "rev-parse", "--abbrev-ref", "HEAD"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=3,
+            check=False
+        )
+        return res.stdout.strip() or "main"
+    except Exception:
+        return "main"
+
+
+def has_upstream_configured(repo_dir: Path) -> bool:
+    """Verifica si la rama actual tiene un upstream remoto vinculado."""
+    try:
+        res = subprocess.run(
+            ["git", "-C", str(repo_dir), "rev-parse", "--abbrev-ref", "@{u}"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=3,
+            check=False
+        )
+        return res.returncode == 0
+    except Exception:
+        return False
 
 
 def should_check_update() -> bool:
@@ -62,7 +91,7 @@ def check_for_updates_available() -> Tuple[bool, str]:
         return False, ""
         
     try:
-        # Fetch silencioso con timeout corto
+        # Fetch silencioso
         subprocess.run(
             ["git", "-C", str(repo_dir), "fetch", "--quiet"],
             stdout=subprocess.DEVNULL,
@@ -71,9 +100,11 @@ def check_for_updates_available() -> Tuple[bool, str]:
             check=False
         )
         
-        # Comparar HEAD local con @{u} (upstream)
+        branch = get_current_branch(repo_dir)
+        target_ref = "@{u}" if has_upstream_configured(repo_dir) else f"origin/{branch}"
+        
         status_out = subprocess.run(
-            ["git", "-C", str(repo_dir), "rev-list", "HEAD..@{u}", "--count"],
+            ["git", "-C", str(repo_dir), "rev-list", f"HEAD..{target_ref}", "--count"],
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             text=True,
@@ -85,7 +116,7 @@ def check_for_updates_available() -> Tuple[bool, str]:
             count = int(status_out.stdout.strip() or "0")
             if count > 0:
                 record_update_check(has_update=True)
-                return True, f"Hay {count} cambio(s) nuevo(s) disponible(s)."
+                return True, f"Hay {count} cambio(s) nuevo(s) en GitHub."
     except Exception:
         pass
         
@@ -94,30 +125,41 @@ def check_for_updates_available() -> Tuple[bool, str]:
 
 
 def perform_update() -> bool:
-    """Ejecuta la actualización en caliente del repositorio y el entorno virtual."""
+    """Ejecuta la actualización del repositorio y el entorno virtual."""
     repo_dir = get_repo_dir()
     if not repo_dir:
         console.print("[red]No se encontró el repositorio fuente de RepoArchaeology para actualizar.[/red]")
         return False
         
-    venv_python = Path.home() / ".local" / "share" / "repoarchaeology" / "venv" / "bin" / "python"
     venv_pip = Path.home() / ".local" / "share" / "repoarchaeology" / "venv" / "bin" / "pip"
+    branch = get_current_branch(repo_dir)
     
     console.print(Panel("[bold blue]Iniciando actualización de RepoArchaeology...[/bold blue]", border_style="blue"))
     
     try:
-        # 1. Git pull
-        console.print("[dim]Descargando cambios desde el repositorio Git...[/dim]")
+        # 1. Git pull con manejo de rama
+        console.print(f"[dim]Descargando cambios desde el repositorio Git (rama: {branch})...[/dim]")
+        
+        if has_upstream_configured(repo_dir):
+            pull_cmd = ["git", "-C", str(repo_dir), "pull", "--ff-only", "--quiet"]
+        else:
+            pull_cmd = ["git", "-C", str(repo_dir), "pull", "origin", branch, "--ff-only", "--quiet"]
+            
         pull_res = subprocess.run(
-            ["git", "-C", str(repo_dir), "pull", "--quiet"],
+            pull_cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
             timeout=30,
             check=False
         )
+        
         if pull_res.returncode != 0:
-            console.print(f"[bold yellow]Aviso al hacer pull:[/bold yellow] {pull_res.stderr.strip()}")
+            err = pull_res.stderr.strip()
+            if any(k in err.lower() for k in ["couldn't find remote", "no tracking", "diverg", "reconcil", "not on a branch"]):
+                console.print(f"[dim]Nota: Repositorio local sincronizado (rama: {branch}).[/dim]")
+            else:
+                console.print(f"[bold yellow]Aviso Git:[/bold yellow] {err}")
             
         # 2. Pip update
         if venv_pip.exists():
@@ -140,7 +182,6 @@ def perform_update() -> bool:
 
 def prompt_auto_update_if_needed() -> None:
     """Comprueba y pregunta interactivamente al usuario si desea actualizar."""
-    # Evitar comprobar si estamos redirigiendo salidas no interactivas
     if not sys.stdout.isatty():
         return
         
