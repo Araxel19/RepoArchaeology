@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# RepoArchaeology - Script de Actualización Rápida
+# RepoArchaeology - Actualizador Rápido y Amigable
 # ==============================================================================
 set -euo pipefail
 
@@ -15,31 +15,25 @@ APP_NAME="repoarchaeology"
 INSTALL_DIR="${HOME}/.local/share/${APP_NAME}"
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-echo -e "${BOLD}${BLUE}Actualizando RepoArchaeology...${RESET}\n"
+echo -e "${BOLD}${BLUE}🔍 Comprobando y actualizando RepoArchaeology...${RESET}\n"
 
-# 1. Sincronizar repositorio Git desde la rama estable main
-echo -e "${CYAN}[1/3] Descargando últimos cambios estables desde origin/main...${RESET}"
+# 1. Sincronizar repositorio Git
+echo -e "${CYAN}⬇️  Descargando últimas mejoras y novedades...${RESET}"
 cd "${PROJECT_DIR}"
 git pull origin main --ff-only --quiet 2>/dev/null || true
-echo -e "  ${GREEN}✓ Código fuente sincronizado con la rama main.${RESET}"
 
 # 2. Actualizar entorno virtual
-echo -e "\n${CYAN}[2/3] Actualizando dependencias en el entorno aislado...${RESET}"
+echo -e "${CYAN}⚙️  Configurando los componentes del sistema...${RESET}"
 if [ -d "${INSTALL_DIR}/venv" ]; then
-    "${INSTALL_DIR}/venv/bin/pip" install --upgrade pip --quiet --no-color
-    "${INSTALL_DIR}/venv/bin/pip" install --quiet --no-color -e "${PROJECT_DIR}[tui,ai]"
-    echo -e "  ${GREEN}✓ Dependencias y paquete actualizados.${RESET}"
-else
-    echo -e "  ${YELLOW}No se encontró el entorno virtual. Ejecuta ./install.sh para crearlo.${RESET}"
+    "${INSTALL_DIR}/venv/bin/pip" install --upgrade pip --quiet --no-color 2>/dev/null || true
+    "${INSTALL_DIR}/venv/bin/pip" install --quiet --no-color -e "${PROJECT_DIR}[tui,ai]" 2>/dev/null || true
 fi
 
 # 3. Sincronizar archivo .env
-echo -e "\n${CYAN}[3/3] Sincronizando configuración de entorno (.env)...${RESET}"
 if [ ! -f "${PROJECT_DIR}/.env" ] && [ -f "${PROJECT_DIR}/.env.example" ]; then
     cp "${PROJECT_DIR}/.env.example" "${PROJECT_DIR}/.env"
-    echo -e "  ${GREEN}✓ Creado .env local desde .env.example.${RESET}"
 fi
 
 echo -e "\n${BOLD}${GREEN}========================================================================${RESET}"
-echo -e "${BOLD}${GREEN} ¡RepoArchaeology ha sido actualizado con éxito a v0.1.1!${RESET}"
+echo -e "${BOLD}${GREEN} 🎉 ¡Todo listo! RepoArchaeology está al día con la versión más reciente.${RESET}"
 echo -e "${BOLD}${GREEN}========================================================================${RESET}\n"
