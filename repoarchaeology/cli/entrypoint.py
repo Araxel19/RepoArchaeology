@@ -26,7 +26,18 @@ from repoarchaeology.exporters.json_exporter import JSONExporter
 
 app = typer.Typer(
     name="repoarch",
-    help="🏛️ [bold blue]RepoArchaeology[/bold blue] — Plataforma forense de repositorios Git, linaje de decisiones, acoplamiento invisible y deuda técnica.",
+    help=(
+        "🏛️ [bold blue]RepoArchaeology[/bold blue] — Plataforma forense de repositorios Git, linaje de decisiones, acoplamiento invisible y deuda técnica.\n\n"
+        "[bold cyan]Ejemplos de uso rápido:[/bold cyan]\n"
+        "  • [green]repoarch doctor[/green]                  Chequeo rápido de salud (5 minutos) en el proyecto actual\n"
+        "  • [green]repoarch scan[/green]                    Auditoría forense integral completa (Hotspots + Couplings + Bus Factor)\n"
+        "  • [green]repoarch scan --html[/green]             Genera y abre el Dashboard web interactivo con sliders\n"
+        "  • [green]repoarch churn -t 15[/green]             Top 15 puntos calientes con mayor rotación de código\n"
+        "  • [green]repoarch coupling -m 0.8[/green]         Detecta dependencias ocultas con co-dependencia ≥ 80%\n"
+        "  • [green]repoarch lore lib/main.dart[/green]      Reconstruye el linaje y decisiones de un archivo con IA local\n"
+        "  • [green]repoarch breaking -b main -t dev[/green]  Compara ramas y detecta contratos rotos entre ramas\n\n"
+        "[dim]Para ver opciones detalladas de cualquier comando ejecuta: [bold cyan]repoarch <comando> --help[/bold cyan][/dim]"
+    ),
     add_completion=False,
     rich_markup_mode="rich"
 )
@@ -470,7 +481,9 @@ def lore(
             ollama_host=config.ollama_host,
             model=config.ollama_model
         )
-        summary = ai.summarize_file_lore(file_path, file_commits)
+        with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), transient=True) as progress:
+            progress.add_task(description=f"Analizando linaje histórico y sintetizando con IA ({config.ollama_model})...", total=None)
+            summary = ai.summarize_file_lore(file_path, file_commits)
 
         console.print(Panel(
             summary,

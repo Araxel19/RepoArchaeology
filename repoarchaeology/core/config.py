@@ -17,8 +17,8 @@ class AppConfig(BaseSettings):
         extra="ignore"
     )
     
-    # Motor de IA: 'offline', 'local' (Ollama), 'gemini', 'openai'
-    ai_provider: str = Field(default="offline", description="Proveedor IA activo")
+    # Motor de IA: 'auto' (detecta Ollama local), 'local', 'gemini', 'openai', 'offline'
+    ai_provider: str = Field(default="auto", description="Proveedor IA activo")
     gemini_api_key: Optional[str] = Field(default=None, description="API Key para Gemini")
     openai_api_key: Optional[str] = Field(default=None, description="API Key para OpenAI")
     ollama_host: str = Field(default="http://localhost:11434", description="Host de Ollama")

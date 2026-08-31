@@ -15,7 +15,7 @@ from repoarchaeology.core.models import CommitInfo, FileHotspot
 class AIEngine:
     """Sintetizador de linaje y explicaciones históricas con fallback adaptativo."""
     
-    def __init__(self, provider: str = "offline", ollama_host: str = "http://localhost:11434", model: str = "qwen2.5-coder:1.5b", api_key: Optional[str] = None):
+    def __init__(self, provider: str = "auto", ollama_host: str = "http://localhost:11434", model: str = "qwen2.5-coder:1.5b", api_key: Optional[str] = None):
         self.provider = provider
         self.ollama_host = ollama_host.rstrip("/")
         self.model = model
@@ -26,14 +26,23 @@ class AIEngine:
         if not commits:
             return f"No se encontraron registros de commits para el archivo '{file_path}'."
             
-        # Intentar Ollama si está activo
-        if self.provider == "local":
+        # Intentar Ollama si está activo (en 'auto' o 'local')
+        if self.provider in ("auto", "local"):
             lore_ai = self._query_ollama_lore(file_path, commits)
             if lore_ai:
-                return lore_ai
+                return lore_ai + f"\n\n[dim]🧠 Generado por modelo local {self.model} (Ollama)[/dim]"
                 
         # Fallback a Motor Heurístico Determinista Offline
-        return self._heuristic_file_lore(file_path, commits)
+        return self._heuristic_file_lore(file_path, commits) + "\n\n[dim]⚡ Generado por Motor Forense Heurístico Determinista[/dim]"
+
+    def is_ollama_available(self) -> bool:
+        """Comprueba si el servidor local de Ollama está accesible."""
+        try:
+            req = urllib.request.Request(f"{self.ollama_host}/api/tags")
+            with urllib.request.urlopen(req, timeout=2) as resp:
+                return resp.status == 200
+        except Exception:
+            return False
 
     def _query_ollama_lore(self, file_path: str, commits: List[CommitInfo]) -> Optional[str]:
         """Consulta a Ollama local con el modelo qwen2.5-coder:1.5b."""
@@ -42,8 +51,10 @@ class AIEngine:
             prompt = (
                 f"Actúa como un arquitecto forense de software. Analiza el historial de commits del archivo '{file_path}':\n"
                 + "\n".join(commit_logs) +
-                "\n\nRedacta un resumen conciso en español (máx 3 párrafos) explicando: "
-                "1) Cuándo y por qué nació el archivo. 2) Su evolución y estabilidad. 3) Si es una zona de riesgo técnico."
+                "\n\nRedacta un análisis conciso en español estructurado en 3 puntos claros: "
+                "1. **Origen y Propósito Inicial**: Cuándo se creó y qué necesidad resolvía. "
+                "2. **Evolución y Autores**: Cómo creció y qué desarrolladores lo modificaron. "
+                "3. **Estabilidad y Riesgo Técnico**: Si ha sufrido de correcciones frecuentes (fixes) o deuda técnica."
             )
             
             payload = json.dumps({
@@ -52,7 +63,7 @@ class AIEngine:
                 "stream": False,
                 "options": {
                     "temperature": 0.3,
-                    "num_predict": 300
+                    "num_predict": 400
                 }
             }).encode("utf-8")
             
@@ -61,7 +72,7 @@ class AIEngine:
                 data=payload,
                 headers={"Content-Type": "application/json"}
             )
-            with urllib.request.urlopen(req, timeout=12) as resp:
+            with urllib.request.urlopen(req, timeout=60) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 return data.get("response", "").strip()
         except Exception:
