@@ -5,6 +5,6 @@ Herramienta de análisis forense de repositorios, linaje de decisiones y detecci
 de deuda técnica oculta.
 """
 
-__version__ = "0.1.9"
+__version__ = "0.2.0"
 __author__ = "Araxel"
 __license__ = "MIT"

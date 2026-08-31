@@ -503,57 +503,153 @@ def breaking(
 @app.command(name="scan")
 def scan(
     path: Path = typer.Option(Path("."), "--path", "-p", help="Ruta al repositorio"),
+    commits_limit: int = typer.Option(400, "--commits", "-c", help="Límite de commits a analizar"),
     export: Optional[Path] = typer.Option(None, "--export", "-e", help="Ruta de exportación (.md, .html, .json)"),
-    html: bool = typer.Option(False, "--html", help="Genera un reporte HTML interactivo"),
+    html: bool = typer.Option(False, "--html", help="Genera y abre el reporte visual interactivo en HTML"),
     include_generated: bool = typer.Option(False, "--include-generated", help="Incluir archivos auto-generados"),
     include_infra: bool = typer.Option(False, "--include-infra", help="Incluir archivos de infraestructura"),
     include_config: bool = typer.Option(False, "--include-config", help="Incluir manifiestos de paquetes"),
     include_l10n: bool = typer.Option(False, "--include-l10n", help="Incluir recursos de traducción"),
 ):
     """
-    📊 Ejecuta un escaneo forense completo y genera reportes en Markdown, HTML o JSON.
+    📊 Ejecuta una auditoría forense integral completa sobre todo el repositorio.
     """
     try:
-        if not export and not html:
-            doctor(
-                path=path,
-                commits_limit=200,
-                html=False,
-                include_generated=include_generated,
-                include_infra=include_infra,
-                include_config=include_config,
-                include_l10n=include_l10n,
+        engine = GitEngine(path.resolve())
+        console.print(Panel.fit(
+            f"[bold blue]RepoArchaeology Scan[/bold blue] · Auditoría Forense Integral de [cyan]{path.resolve().name}[/cyan]",
+            border_style="blue"
+        ))
+
+        with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), transient=True) as progress:
+            progress.add_task(description="Extrayendo commits, calculando ASTs, hotspots y correlaciones...", total=None)
+            commits = engine.extract_commits(max_count=commits_limit)
+            hotspots = engine.calculate_hotspots(
+                commits,
+                exclude_generated=not include_generated,
+                exclude_infra=not include_infra,
+                exclude_config=not include_config,
+                exclude_l10n=not include_l10n,
             )
+            couplings = engine.detect_ghost_coupling(
+                commits,
+                exclude_generated=not include_generated,
+                exclude_infra=not include_infra,
+                exclude_config_pairs=not include_config,
+                exclude_l10n_sync=not include_l10n,
+            )
+            bus_factors = engine.calculate_bus_factor(commits)
+            health_score = engine.calculate_health_score(commits, hotspots, couplings, bus_factors)
+
+        if not commits:
+            console.print("[yellow]No se encontraron commits suficientes en este repositorio.[/yellow]")
             return
 
-        engine = GitEngine(path.resolve())
-        commits = engine.extract_commits(max_count=400)
-        hotspots = engine.calculate_hotspots(
-            commits,
-            exclude_generated=not include_generated,
-            exclude_infra=not include_infra,
-            exclude_config=not include_config,
-            exclude_l10n=not include_l10n,
-        )
-        couplings = engine.detect_ghost_coupling(
-            commits,
-            exclude_generated=not include_generated,
-            exclude_infra=not include_infra,
-            exclude_config_pairs=not include_config,
-            exclude_l10n_sync=not include_l10n,
-        )
-        bus_factors = engine.calculate_bus_factor(commits)
-        health_score = engine.calculate_health_score(commits, hotspots, couplings, bus_factors)
+        critical_hotspots = [h for h in hotspots if h.risk_level == "CRITICAL"]
+        high_couplings = [c for c in couplings if c.confidence >= 0.8]
+        total_fixes = sum(1 for c in commits if c.is_fix)
+        fix_pct = round((total_fixes / len(commits)) * 100, 1)
 
-        critical_count = sum(1 for h in hotspots if h.risk_level == "CRITICAL")
+        color = "green" if health_score >= 80 else ("yellow" if health_score >= 50 else "red")
 
+        # ── Resumen de Métricas Globales ──
+        console.print(f"\n[bold]Puntaje de Salud Histórica:[/bold] [{color} bold]{health_score} / 100[/{color} bold]")
+        console.print(
+            f"Commits: [cyan]{len(commits)}[/cyan] ([dim]{fix_pct}% fixes[/dim]) | "
+            f"Archivos: [cyan]{len(hotspots)}[/cyan] ([red]{len(critical_hotspots)} críticos[/red]) | "
+            f"Acoplamientos Ocultos: [cyan]{len(couplings)}[/cyan] ([red]{len(high_couplings)} críticos[/red]) | "
+            f"Autores: [cyan]{len(bus_factors)}[/cyan]\n"
+        )
+
+        # ── 1. Tabla de Hotspots (Top 10) ──
+        table_hot = Table(title="🔥 1. Puntos Calientes de Mayor Riesgo (Top Hotspots)", border_style="blue", show_lines=True, expand=True)
+        table_hot.add_column("#", justify="right", style="dim", width=3)
+        table_hot.add_column("Archivo", style="cyan", ratio=4, no_wrap=False, overflow="fold")
+        table_hot.add_column("Tipo", style="dim", width=12)
+        table_hot.add_column("Commits", justify="right", width=8)
+        table_hot.add_column("Fixes", justify="right", width=6)
+        table_hot.add_column("Autores", justify="right", width=8)
+        table_hot.add_column("Propietario", style="magenta", ratio=2, no_wrap=False, overflow="fold")
+        table_hot.add_column("Riesgo", justify="center", width=10)
+
+        for idx, h in enumerate(hotspots[:10], start=1):
+            risk_color = "red" if h.risk_level == "CRITICAL" else ("yellow" if h.risk_level == "HIGH" else "green")
+            table_hot.add_row(
+                str(idx),
+                h.file_path,
+                get_file_role(h.file_path),
+                str(h.commit_count),
+                str(h.fix_count),
+                str(h.authors_count),
+                f"{h.top_author} ({h.top_author_percentage}%)",
+                f"[{risk_color} bold]{h.risk_level}[/{risk_color} bold]",
+            )
+        console.print(table_hot)
+
+        # ── 2. Tabla de Acoplamientos Fantasma (Top 10) ──
+        if couplings:
+            console.print("")
+            table_coup = Table(title="👻 2. Acoplamientos Fantasma y Co-dependencias Críticas", border_style="yellow", show_lines=True, expand=True)
+            table_coup.add_column("Archivo A", style="cyan", ratio=4, no_wrap=False, overflow="fold")
+            table_coup.add_column("Archivo B", style="magenta", ratio=4, no_wrap=False, overflow="fold")
+            table_coup.add_column("Co-Commits", justify="right", width=10)
+            table_coup.add_column("Co-dependencia", justify="right", width=16)
+            table_coup.add_column("Diagnóstico y Acción", style="dim", ratio=5, no_wrap=False, overflow="fold")
+
+            for c in couplings[:10]:
+                conf_color = "bold red" if c.confidence >= 0.8 else ("bold yellow" if c.confidence >= 0.6 else "bold green")
+                conf_label = f"{int(c.confidence * 100)}% (Siempre)" if c.confidence >= 0.99 else f"{int(c.confidence * 100)}%"
+                table_coup.add_row(
+                    c.file_a,
+                    c.file_b,
+                    str(c.co_commit_count),
+                    f"[{conf_color}]{conf_label}[/{conf_color}]",
+                    c.explanation,
+                )
+            console.print(table_coup)
+
+        # ── 3. Tabla de Bus Factor y Propiedad de Código ──
+        if bus_factors:
+            console.print("")
+            table_bus = Table(title="👤 3. Concentración de Propiedad de Código (Bus Factor)", border_style="magenta", show_lines=True, expand=True)
+            table_bus.add_column("Autor / Desarrollador", style="cyan", ratio=3)
+            table_bus.add_column("Commits", justify="right", width=10)
+            table_bus.add_column("% Participación", justify="right", width=16)
+            table_bus.add_column("Archivos Propios", justify="right", width=16)
+            table_bus.add_column("Estado de Riesgo", justify="center", ratio=2)
+
+            for b in bus_factors[:8]:
+                if b.ownership_percentage >= 70 and len(bus_factors) > 2:
+                    st_color, st_label = "bold red", "CRÍTICO (Concentrado)"
+                elif b.ownership_percentage >= 40:
+                    st_color, st_label = "bold yellow", "Principal"
+                else:
+                    st_color, st_label = "green", "Colaborador"
+
+                table_bus.add_row(
+                    b.author_name,
+                    str(b.commit_count),
+                    f"{b.ownership_percentage}%",
+                    f"{b.files_owned_count} archivo(s)",
+                    f"[{st_color}]{st_label}[/{st_color}]"
+                )
+            console.print(table_bus)
+
+        # ── 4. Plan de Acción y Deuda Técnica Consolidada ──
         recs = [
-            f"Añadir tests unitarios y de integración prioritariamente a los {critical_count} archivos críticos.",
-            "Revisar los acoplamientos de alta co-dependencia y evaluar si requieren desacoplamiento modular.",
-            "Programar sesiones de pair programming para distribuir el conocimiento entre autores.",
-            "Documentar las dependencias implícitas encontradas en los acoplamientos fantasma.",
+            f"Prioridad 1: Refactorizar y añadir tests a los [bold cyan]{len(critical_hotspots)} archivo(s) con rotación crítica[/bold cyan].",
+            f"Prioridad 2: Desacoplar los [bold yellow]{len(high_couplings)} pares con co-dependencia ≥80%[/bold yellow] para evitar roturas invisibles.",
+            "Prioridad 3: Distribuir conocimiento mediante revisiones de código y pair programming.",
+            "Prioridad 4: Mantener la exclusión de artefactos generados para preservar métricas limpias en CI.",
         ]
+        console.print(Panel(
+            "\n".join(f"  • {r}" for r in recs),
+            title="📋 4. Plan de Mitigación de Deuda Técnica",
+            border_style="green",
+            padding=(0, 1),
+        ))
 
+        # ── Exportación ──
         report = RepoHealthReport(
             repo_name=path.resolve().name,
             total_commits_analyzed=len(commits),
@@ -574,11 +670,14 @@ def scan(
                 JSONExporter.export(report, export.resolve())
             else:
                 MarkdownExporter.export(report, export.resolve())
-            console.print(f"[bold green]✓ Reporte exportado a:[/bold green] {export.resolve()}")
+            console.print(f"\n[bold green]✓ Reporte completo exportado a:[/bold green] {export.resolve()}")
         elif html:
             target_html = path.resolve() / "repoarch_report.html"
             HTMLExporter.export(report, target_html)
-            console.print(f"[bold green]✓ Reporte interactivo HTML con scroll/sliders generado en:[/bold green] {target_html}")
+            console.print(f"\n[bold green]✓ Reporte interactivo HTML con scroll/sliders generado en:[/bold green] {target_html}")
+        else:
+            console.print("\n[dim]💡 Tip: Puedes exportar este informe completo con: [cyan]repoarch scan --html[/cyan] o [cyan]repoarch scan --export reporte.json[/cyan][/dim]\n")
+
     except Exception as e:
         console.print(f"[bold red]Error durante el escaneo:[/bold red] {e}")
         sys.exit(1)
