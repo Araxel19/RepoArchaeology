@@ -122,21 +122,24 @@ def doctor(
         console.print(f"\n[bold]Puntaje de Salud Histórica:[/bold] [{color} bold]{health_score} / 100[/{color} bold]")
         console.print(f"Commits analizados: [cyan]{len(commits)}[/cyan] | Archivos de código analizados: [cyan]{len(hotspots)}[/cyan]\n")
 
-        # Tabla hotspots enriquecida
-        table = Table(title="🔥 Archivos de Código en Mayor Riesgo", border_style="blue", show_lines=True)
-        table.add_column("Archivo", style="cyan", no_wrap=False)
-        table.add_column("Tipo", style="dim", min_width=18)
-        table.add_column("Commits", justify="right")
-        table.add_column("Fixes", justify="right")
-        table.add_column("Autores", justify="right")
-        table.add_column("Propietario", style="magenta")
-        table.add_column("Riesgo", justify="center")
-        table.add_column("Qué hacer", style="dim", min_width=30)
 
-        for h in hotspots[:5]:
+        # ── Tabla compacta de métricas (sin columna "Qué hacer" para que no se corte) ──
+
+        table = Table(title="🔥 Archivos de Código en Mayor Riesgo", border_style="blue", show_lines=True)
+        table.add_column("#", style="dim", justify="right", width=3)
+        table.add_column("Archivo", style="cyan", ratio=4)
+        table.add_column("Tipo", style="dim", ratio=3)
+        table.add_column("Commits", justify="right", width=8)
+        table.add_column("Fixes", justify="right", width=6)
+        table.add_column("Autores", justify="right", width=8)
+        table.add_column("Propietario", style="magenta", ratio=3)
+        table.add_column("Riesgo", justify="center", width=10)
+
+        top_hotspots = hotspots[:5]
+        for idx, h in enumerate(top_hotspots, start=1):
             risk_color = "red" if h.risk_level == "CRITICAL" else ("yellow" if h.risk_level == "HIGH" else "green")
-            action = _generate_hotspot_action(h.file_path, h.fix_count, h.authors_count, h.top_author_percentage)
             table.add_row(
+                str(idx),
                 h.file_path,
                 get_file_role(h.file_path),
                 str(h.commit_count),
@@ -144,9 +147,22 @@ def doctor(
                 str(h.authors_count),
                 f"{h.top_author} ({h.top_author_percentage}%)",
                 f"[{risk_color} bold]{h.risk_level}[/{risk_color} bold]",
-                action,
             )
         console.print(table)
+
+        # ── Recomendaciones como lista numerada en panel separado ──
+        if top_hotspots:
+            rec_lines = []
+            for idx, h in enumerate(top_hotspots, start=1):
+                action = _generate_hotspot_action(h.file_path, h.fix_count, h.authors_count, h.top_author_percentage)
+                name = Path(h.file_path).name
+                rec_lines.append(f"  [bold cyan]{idx}. {name}[/bold cyan] — {action}")
+            console.print(Panel(
+                "\n".join(rec_lines),
+                title="💡 Recomendaciones por Archivo",
+                border_style="cyan",
+                padding=(0, 1),
+            ))
 
         # Bus factor
         if bus_factors:
@@ -155,34 +171,35 @@ def doctor(
                 console.print(
                     f"\n[bold red]⚠️  Riesgo de Bus Factor:[/bold red] "
                     f"[bold]{top_b.author_name}[/bold] concentra el [bold]{top_b.ownership_percentage}%[/bold] "
-                    f"de los commits y es propietario de [bold]{top_b.files_owned_count}[/bold] archivo(s) de código. "
-                    f"Si esta persona deja el proyecto, el conocimiento se pierde. "
-                    f"[dim]Sugiere pair programming o revisiones cruzadas.[/dim]"
+                    f"de los commits y es propietario de [bold]{top_b.files_owned_count}[/bold] archivo(s). "
+                    f"Si sale del proyecto, el conocimiento se pierde. "
+                    f"[dim]→ Programa pair programming o revisiones cruzadas.[/dim]"
                 )
             elif top_b.ownership_percentage >= 50.0:
                 console.print(
                     f"\n[bold yellow]⚡ Bus Factor Moderado:[/bold yellow] "
                     f"[bold]{top_b.author_name}[/bold] lidera con {top_b.ownership_percentage}% de participación. "
-                    f"Considera distribuir gradualmente el conocimiento."
+                    f"[dim]→ Distribuye gradualmente el conocimiento.[/dim]"
                 )
 
-        # Resumen de acoplamientos con conteo de patrones
+        # Acoplamientos
         if couplings:
             high_conf = sum(1 for c in couplings if c.confidence >= 0.8)
             console.print(
-                f"[bold yellow]👻 {len(couplings)} acoplamiento(s) invisible(s) detectado(s)[/bold yellow] "
+                f"\n[bold yellow]👻 {len(couplings)} acoplamiento(s) invisible(s) detectado(s)[/bold yellow] "
                 f"([bold red]{high_conf} con confianza ≥80%[/bold red]). "
-                f"Usa [cyan]repoarch coupling[/cyan] para ver diagnósticos detallados y qué refactorizar.\n"
+                f"Usa [cyan]repoarch coupling[/cyan] para ver diagnósticos y qué refactorizar.\n"
             )
         else:
-            console.print("[green]✓ No se detectaron acoplamientos fantasma significativos en el código fuente.[/green]\n")
+            console.print("\n[green]✓ No se detectaron acoplamientos fantasma significativos.[/green]\n")
 
         if not include_generated:
-            console.print("[dim]ℹ️  Archivos auto-generados y de infraestructura excluidos del análisis. Usa --include-generated o --include-infra para incluirlos.[/dim]\n")
+            console.print("[dim]ℹ️  Archivos auto-generados e infraestructura excluidos. Usa --include-generated o --include-infra para incluirlos.[/dim]\n")
 
     except Exception as e:
         console.print(f"[bold red]Error durante el diagnóstico:[/bold red] {e}")
         sys.exit(1)
+
 
 
 @app.command(name="churn")
