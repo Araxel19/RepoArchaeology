@@ -320,12 +320,12 @@ def churn(
         table = Table(title=f"🔥 Top {top} Puntos Calientes de Código (Code Churn)", border_style="blue", show_lines=True, expand=True)
         table.add_column("#", justify="right", style="dim", width=3)
         table.add_column("Archivo", style="cyan", no_wrap=False, overflow="fold")
-        table.add_column("Tipo", style="dim")
-        table.add_column("Commits", justify="right")
-        table.add_column("Fixes", justify="right")
-        table.add_column("Autores", justify="right")
-        table.add_column("Churn", justify="right")
-        table.add_column("Riesgo", justify="center")
+        table.add_column("Tipo", style="dim", width=12)
+        table.add_column("Commits", justify="right", width=8)
+        table.add_column("Fixes", justify="right", width=6)
+        table.add_column("Autores", justify="right", width=8)
+        table.add_column("Churn", justify="right", width=8)
+        table.add_column("Riesgo", justify="center", width=10)
 
         top_hotspots = hotspots[:top]
         for idx, h in enumerate(top_hotspots, start=1):
@@ -390,11 +390,11 @@ def coupling(
             return
 
         table = Table(title="👻 Acoplamientos Fantasma en Código Fuente", border_style="yellow", show_lines=True, expand=True)
-        table.add_column("Archivo A", style="cyan", ratio=4, no_wrap=False)
-        table.add_column("Archivo B", style="magenta", ratio=4, no_wrap=False)
+        table.add_column("Archivo A", style="cyan", ratio=4, no_wrap=False, overflow="fold")
+        table.add_column("Archivo B", style="magenta", ratio=4, no_wrap=False, overflow="fold")
         table.add_column("Co-Commits", justify="right", width=10)
         table.add_column("Co-dependencia", justify="right", width=16)
-        table.add_column("Diagnóstico y Acción", style="dim", ratio=5, no_wrap=False)
+        table.add_column("Diagnóstico y Acción", style="dim", ratio=5, no_wrap=False, overflow="fold")
 
         for c in couplings[:15]:
             conf_color = "bold red" if c.confidence >= 0.8 else ("bold yellow" if c.confidence >= 0.6 else "bold green")
@@ -474,10 +474,10 @@ def breaking(
             console.print(f"[green]✓ No se detectaron roturas de contrato o firmas eliminadas entre {base} y {target}.[/green]")
             return
 
-        table = Table(title=f"⚡ Breaking Changes Detectados ({base} ↔ {target})", border_style="red")
-        table.add_column("Archivo", style="cyan")
-        table.add_column("Símbolo Afectado", style="bold red")
-        table.add_column("Descripción", style="dim")
+        table = Table(title=f"⚡ Breaking Changes Detectados ({base} ↔ {target})", border_style="red", show_lines=True, expand=True)
+        table.add_column("Archivo", style="cyan", ratio=4, no_wrap=False, overflow="fold")
+        table.add_column("Símbolo Afectado", style="bold red", ratio=3, no_wrap=False, overflow="fold")
+        table.add_column("Descripción", style="dim", ratio=5, no_wrap=False, overflow="fold")
 
         for ch in changes:
             table.add_row(ch.file_path, ch.symbol_name, ch.description)
