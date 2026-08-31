@@ -10,15 +10,13 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
-from rich.columns import Columns
-from rich.text import Text
 
 from repoarchaeology import __version__
 from repoarchaeology.core.config import load_config
 from repoarchaeology.core.updater import perform_update, prompt_auto_update_if_needed
 from repoarchaeology.engines.git_engine import (
     GitEngine, get_file_role, generate_coupling_insight,
-    is_auto_generated, is_infra_only, is_high_level_config
+    is_auto_generated, is_infra_only, is_high_level_config, is_l10n
 )
 from repoarchaeology.engines.ai_engine import AIEngine
 from repoarchaeology.core.models import RepoHealthReport
@@ -71,77 +69,76 @@ def _generate_hotspot_action(file_path: str, fix_count: int, authors_count: int,
     ext = Path(file_path).suffix.lower()
 
     # ── Archivos de localización / traducción (.arb, .po, .strings) ────────────
-    if ext in (".arb",) or "l10n" in fp or "locali" in fp or "i18n" in fp or "intl" in fp:
+    if is_l10n(file_path):
         if fix_count >= 3:
             return f"Traducciones con {fix_count} correcciones. Automatiza la validación de claves ausentes en CI para evitar que falten textos en algún idioma."
         if authors_count >= 3:
-            return "Múltiples autores editando traducciones. Define un flujo claro: un PR por idioma o uso de Crowdin/Lokalise para centralizar el proceso."
-        return "Recurso de localización con alta rotación. Considera un script que verifique que todos los idiomas tengan las mismas claves antes de hacer merge."
+            return "Múltiples autores editando traducciones. Define un flujo centralizado (Crowdin/Lokalise o PR por idioma)."
+        return "Recurso de localización con rotación activa. Verifica periódicamente que todos los idiomas tengan paridad de claves."
 
     # ── Archivos de configuración de proyecto (pubspec.yaml, package.json…) ────
     if is_high_level_config(file_path):
         if fix_count >= 5:
-            return f"Dependencias corregidas {fix_count} veces. Ejecuta `dependency audit` periódicamente y fija versiones exactas para evitar roturas silenciosas."
+            return f"Dependencias modificadas/corregidas {fix_count} veces. Ejecuta auditorías periódicas de vulnerabilidades y fija versiones estables."
         if authors_count >= 3:
-            return "Múltiples personas tocando las dependencias. Designa un responsable de dependencias y usa un bot (Dependabot/Renovate) para actualizaciones automáticas."
-        return "Alta rotación en las dependencias. Considera usar rangos semánticos controlados y documentar el motivo de cada cambio de versión en el CHANGELOG."
+            return "Múltiples personas gestionando dependencias. Centraliza las actualizaciones con un bot (Dependabot/Renovate)."
+        return "Alta actividad en dependencias. Mantén un registro claro de cambios en el CHANGELOG al actualizar versiones mayores."
 
     # ── Archivos de autenticación / seguridad ───────────────────────────────────
     if any(w in fp for w in ["auth", "login", "session", "token", "credential", "secret", "jwt", "oauth", "permission", "role"]):
         if fix_count >= 3:
-            return f"Componente de autenticación con {fix_count} correcciones. Cada cambio aquí es un riesgo de seguridad. Agrega revisión obligatoria de seguridad (security review) antes de mergear."
+            return f"Autenticación con {fix_count} correcciones históricas. Requiere revisión estricta de seguridad antes de cualquier merge."
         if top_author_pct >= 85:
-            return "Autenticación casi exclusiva de un autor. Documenta el flujo completo y haz al menos una revisión cruzada por sprint para no depender de una sola persona en lo más crítico."
-        return "Lógica de autenticación con alta rotación. Asegúrate de tener tests de integración que cubran los flujos de login, logout y renovación de sesión."
+            return "Lógica de autenticación concentrada en un único autor. Documenta el flujo de sesión y programa revisiones cruzadas."
+        return "Módulo de autenticación crítico. Asegura tests de integración para login, renovación de token y revocación de sesión."
 
-    # ── Pantallas / páginas de UI (screen, page, view) ─────────────────────────
+    # ── Pantallas / páginas de UI (screen, page, view, component) ───────────────
     if any(w in fp for w in ["screen", "page", "view", "_ui", "widget", "component", "dialog", "modal", "sheet"]):
+        is_web_or_react = ext in (".jsx", ".tsx", ".vue", ".svelte", ".js", ".ts")
         if fix_count >= 5:
-            return f"Pantalla con {fix_count} correcciones. Probablemente tiene demasiada lógica mezclada con la UI. Extrae la lógica de negocio a un ViewModel o Bloc y agrega widget tests."
+            if is_web_or_react:
+                return f"Componente con {fix_count} correcciones. Extrae la lógica a Custom Hooks o Servicios y añade tests de componentes."
+            return f"Pantalla con {fix_count} correcciones. Probable exceso de lógica en UI. Extrae la lógica a un ViewModel o Bloc y añade widget tests."
         if authors_count >= 4:
-            return f"Pantalla modificada por {authors_count} autores sin coordinación. Define si el componente pertenece a una feature específica y asigna un responsable."
+            return f"Componente editado por {authors_count} autores. Define un responsable de la feature para mantener la consistencia visual."
         if top_author_pct >= 90:
-            return "UI crítica con un único autor. Programa una revisión de diseño y asegúrate de que hay al menos un widget test para los flujos principales."
-        return "Alta rotación en la UI. Considera dividir el archivo en widgets más pequeños y reutilizables para facilitar el mantenimiento."
+            return "UI desarrollada casi en su totalidad por un autor. Añade tests de regresión visual o pruebas de interacción para los flujos clave."
+        return "Alta rotación de UI. Divide en subcomponentes más pequeños y reutilizables para simplificar el mantenimiento."
 
     # ── Rutas / controladores de API ────────────────────────────────────────────
     if any(w in fp for w in ["route", "router", "controller", "handler", "endpoint", "api"]):
         if fix_count >= 4:
-            return f"Ruta o controlador con {fix_count} correcciones. Define contratos claros (OpenAPI/Swagger) para cada endpoint y agrega tests de integración de API."
+            return f"Rutas/controlador con {fix_count} correcciones. Define contratos estrictos (OpenAPI/Swagger) y añade tests de integración de API."
         if authors_count >= 3:
-            return f"Múltiples autores en el controlador. Establece una convención de respuestas API y valida que todos los endpoints usen el mismo formato de error."
-        return "Alta rotación en rutas. Asegúrate de documentar los parámetros, respuestas y casos de error de cada endpoint."
+            return "Múltiples autores en el controlador. Estandariza el formato de respuestas y el manejo de errores global."
+        return "Alta rotación en rutas. Documenta parámetros, respuestas y códigos de estado esperados."
 
-    # ── Servicios / lógica de negocio ───────────────────────────────────────────
+    # ── Servicios / lógica de negocio / repositorios ────────────────────────────
     if any(w in fp for w in ["service", "usecase", "use_case", "interactor", "domain", "repository", "repo"]):
         if fix_count >= 4:
-            return f"Servicio con {fix_count} correcciones en el historial. Agrega tests unitarios que cubran los casos de error específicos que generaron esos fixes."
+            return f"Servicio con {fix_count} correcciones. Añade tests unitarios focalizados en los casos borde que causaron esos bugs."
         if top_author_pct >= 90:
-            return "Servicio dominado por un autor. Documenta los contratos de entrada/salida y transfiere conocimiento con una sesión de pair programming."
-        return "Lógica de negocio con alta rotación. Verifica que las responsabilidades están bien delimitadas y que no hay lógica de presentación mezclada."
+            return "Lógica de negocio dominada por un autor. Documenta los contratos de entrada/salida y transfiere conocimiento con pair programming."
+        return "Lógica de negocio con alta rotación. Asegura que las responsabilidades estén bien delimitadas sin acoplamiento a la UI."
 
     # ── Esquemas de base de datos / migraciones ──────────────────────────────────
     if any(w in fp for w in ["migration", "schema", "seed", "database", "db", ".sql"]):
         if fix_count >= 3:
-            return f"Esquema de base de datos con {fix_count} correcciones. Revisa que todas las migraciones sean reversibles (down migrations) y estén probadas en un entorno de staging."
-        return "Base de datos con alta rotación. Documenta cada migración con el motivo del cambio y verifica que no hay datos perdidos en el proceso."
+            return f"Esquema de datos con {fix_count} correcciones. Verifica que todas las migraciones sean reversibles y probadas en staging."
+        return "Base de datos con alta rotación. Documenta cada migración con el motivo del cambio y valida la integridad referencial."
 
     # ── Tests ────────────────────────────────────────────────────────────────────
     if any(w in fp for w in ["_test.", "test_", "/test/", "/tests/", "spec.", "_spec."]):
-        return "El propio archivo de tests cambia frecuentemente. Verifica que los tests son estables y no están acoplados a detalles de implementación que cambian seguido."
+        return "Archivo de tests modificado frecuentemente. Verifica que los tests no dependan de detalles de implementación frágiles."
 
-    # ── Archivos de scripts / CI / configuración de entorno ─────────────────────
-    if ext in (".sh", ".bash", ".ps1", ".bat") or any(w in fp for w in ["dockerfile", "docker-compose", "ci", "pipeline", "workflow"]):
-        return "Script de infraestructura con alta rotación. Considera parametrizar las variables de entorno y agregar al menos una prueba de smoke test en el pipeline."
-
-    # ── Fallback genérico pero con variación por métricas ───────────────────────
+    # ── Fallback ─────────────────────────────────────────────────────────────────
     if fix_count >= 5:
-        return f"Alta tasa de correcciones ({fix_count} fixes en el historial). Analiza qué tipo de errores se repiten y si hay un patrón que pueda prevenirse con mejores abstracciones."
+        return f"Alta tasa de correcciones ({fix_count} fixes). Analiza el historial de errores para detectar patrones comunes y aplicar abstracciones."
     if top_author_pct >= 90:
-        return f"Archivo casi exclusivo de un autor ({top_author_pct}%). Incluye a otro desarrollador en las revisiones de PR para distribuir el conocimiento gradualmente."
+        return f"Archivo casi exclusivo de un autor ({top_author_pct}%). Incluye a otro colaborador en las revisiones de código para compartir conocimiento."
     if authors_count >= 4:
-        return f"Demasiados autores ({authors_count}) sin un propietario claro. Define quién tiene la última palabra en los cambios a este archivo para evitar inconsistencias."
-    return f"Alta rotación de código. Evalúa si {name} tiene demasiadas responsabilidades y podría dividirse en partes más pequeñas."
+        return f"Múltiples autores ({authors_count}) sin propietario claro. Asigna responsabilidad sobre este módulo para evitar inconsistencias."
+    return f"Alta rotación de código. Evalúa si {name} tiene demasiadas responsabilidades y puede modularizarse."
 
 
 @app.command(name="doctor")
@@ -175,32 +172,27 @@ def doctor(
                 exclude_infra=not include_infra,
             )
             bus_factors = engine.calculate_bus_factor(commits)
+            health_score = engine.calculate_health_score(commits, hotspots, couplings, bus_factors)
 
         if not commits:
             console.print("[yellow]No se encontraron commits suficientes en este repositorio.[/yellow]")
             return
-
-        critical_count = sum(1 for h in hotspots if h.risk_level == "CRITICAL")
-        high_count = sum(1 for h in hotspots if h.risk_level == "HIGH")
-        health_score = max(100 - (critical_count * 8) - (high_count * 3) - (len(couplings) * 1), 15)
 
         color = "green" if health_score >= 80 else ("yellow" if health_score >= 50 else "red")
 
         console.print(f"\n[bold]Puntaje de Salud Histórica:[/bold] [{color} bold]{health_score} / 100[/{color} bold]")
         console.print(f"Commits analizados: [cyan]{len(commits)}[/cyan] | Archivos de código analizados: [cyan]{len(hotspots)}[/cyan]\n")
 
-
-        # ── Tabla compacta de métricas (sin columna "Qué hacer" para que no se corte) ──
-
+        # ── Tabla compacta de métricas ──
         table = Table(title="🔥 Archivos de Código en Mayor Riesgo", border_style="blue", show_lines=True)
         table.add_column("#", style="dim", justify="right", width=3)
-        table.add_column("Archivo", style="cyan", ratio=4)
-        table.add_column("Tipo", style="dim", ratio=3)
-        table.add_column("Commits", justify="right", width=8)
-        table.add_column("Fixes", justify="right", width=6)
-        table.add_column("Autores", justify="right", width=8)
-        table.add_column("Propietario", style="magenta", ratio=3)
-        table.add_column("Riesgo", justify="center", width=10)
+        table.add_column("Archivo", style="cyan")
+        table.add_column("Tipo", style="dim")
+        table.add_column("Commits", justify="right")
+        table.add_column("Fixes", justify="right")
+        table.add_column("Autores", justify="right")
+        table.add_column("Propietario", style="magenta")
+        table.add_column("Riesgo", justify="center")
 
         top_hotspots = hotspots[:5]
         for idx, h in enumerate(top_hotspots, start=1):
@@ -231,15 +223,21 @@ def doctor(
                 padding=(0, 1),
             ))
 
-        # Bus factor
+        # ── Bus factor contextualizado según tamaño del equipo ──
         if bus_factors:
             top_b = bus_factors[0]
-            if top_b.ownership_percentage >= 70.0:
+            total_devs = len(bus_factors)
+            if total_devs <= 2:
+                console.print(
+                    f"\n[dim]👤 [bold]Contexto de Equipo:[/bold] Proyecto individual o reducido ({total_devs} autor(es)). "
+                    f"{top_b.author_name} concentra el {top_b.ownership_percentage}% de los commits (comportamiento esperado).[/dim]"
+                )
+            elif top_b.ownership_percentage >= 70.0:
                 console.print(
                     f"\n[bold red]⚠️  Riesgo de Bus Factor:[/bold red] "
                     f"[bold]{top_b.author_name}[/bold] concentra el [bold]{top_b.ownership_percentage}%[/bold] "
-                    f"de los commits y es propietario de [bold]{top_b.files_owned_count}[/bold] archivo(s). "
-                    f"Si sale del proyecto, el conocimiento se pierde. "
+                    f"de los commits y es propietario de [bold]{top_b.files_owned_count}[/bold] archivo(s) en un equipo de {total_devs} desarrolladores. "
+                    f"Si sale del proyecto, se pierde conocimiento crítico. "
                     f"[dim]→ Programa pair programming o revisiones cruzadas.[/dim]"
                 )
             elif top_b.ownership_percentage >= 50.0:
@@ -249,24 +247,23 @@ def doctor(
                     f"[dim]→ Distribuye gradualmente el conocimiento.[/dim]"
                 )
 
-        # Acoplamientos
+        # ── Acoplamientos ──
         if couplings:
             high_conf = sum(1 for c in couplings if c.confidence >= 0.8)
             console.print(
-                f"\n[bold yellow]👻 {len(couplings)} acoplamiento(s) invisible(s) detectado(s)[/bold yellow] "
+                f"\n[bold yellow]👻 {len(couplings)} acoplamiento(s) arquitectónico(s) detectado(s)[/bold yellow] "
                 f"([bold red]{high_conf} con confianza ≥80%[/bold red]). "
-                f"Usa [cyan]repoarch coupling[/cyan] para ver diagnósticos y qué refactorizar.\n"
+                f"Usa [cyan]repoarch coupling[/cyan] para ver el diagnóstico modular.\n"
             )
         else:
-            console.print("\n[green]✓ No se detectaron acoplamientos fantasma significativos.[/green]\n")
+            console.print("\n[green]✓ No se detectaron acoplamientos fantasma significativos en la arquitectura.[/green]\n")
 
         if not include_generated:
-            console.print("[dim]ℹ️  Archivos auto-generados e infraestructura excluidos. Usa --include-generated o --include-infra para incluirlos.[/dim]\n")
+            console.print("[dim]ℹ️  Archivos auto-generados e infraestructura excluidos del análisis. Usa --include-generated o --include-infra para incluirlos.[/dim]\n")
 
     except Exception as e:
         console.print(f"[bold red]Error durante el diagnóstico:[/bold red] {e}")
         sys.exit(1)
-
 
 
 @app.command(name="churn")
@@ -290,7 +287,7 @@ def churn(
         )
 
         table = Table(title=f"🔥 Top {top} Puntos Calientes de Código (Code Churn)", border_style="blue", show_lines=True)
-        table.add_column("#", justify="right", style="dim")
+        table.add_column("#", justify="right", style="dim", width=3)
         table.add_column("Archivo", style="cyan")
         table.add_column("Tipo", style="dim")
         table.add_column("Commits", justify="right")
@@ -298,11 +295,10 @@ def churn(
         table.add_column("Autores", justify="right")
         table.add_column("Churn", justify="right")
         table.add_column("Riesgo", justify="center")
-        table.add_column("Acción Recomendada", style="dim")
 
-        for idx, h in enumerate(hotspots[:top], start=1):
+        top_hotspots = hotspots[:top]
+        for idx, h in enumerate(top_hotspots, start=1):
             risk_color = "red" if h.risk_level == "CRITICAL" else ("yellow" if h.risk_level == "HIGH" else "green")
-            action = _generate_hotspot_action(h.file_path, h.fix_count, h.authors_count, h.top_author_percentage)
             table.add_row(
                 str(idx),
                 h.file_path,
@@ -312,9 +308,22 @@ def churn(
                 str(h.authors_count),
                 f"{h.churn_score}%",
                 f"[{risk_color} bold]{h.risk_level}[/{risk_color} bold]",
-                action,
             )
         console.print(table)
+
+        if top_hotspots:
+            rec_lines = []
+            for idx, h in enumerate(top_hotspots, start=1):
+                action = _generate_hotspot_action(h.file_path, h.fix_count, h.authors_count, h.top_author_percentage)
+                name = Path(h.file_path).name
+                rec_lines.append(f"  [bold cyan]{idx}. {name}[/bold cyan] — {action}")
+            console.print(Panel(
+                "\n".join(rec_lines),
+                title="💡 Recomendaciones por Archivo",
+                border_style="cyan",
+                padding=(0, 1),
+            ))
+
         if not include_generated:
             console.print("[dim]ℹ️  Archivos auto-generados y de infraestructura excluidos. Usa --include-generated para incluirlos.[/dim]")
     except Exception as e:
@@ -329,9 +338,10 @@ def coupling(
     commits_limit: int = typer.Option(400, "--commits", "-c", help="Límite de commits"),
     include_generated: bool = typer.Option(False, "--include-generated", help="Incluir archivos auto-generados"),
     include_infra: bool = typer.Option(False, "--include-infra", help="Incluir archivos de infraestructura"),
+    include_config: bool = typer.Option(False, "--include-config", help="Incluir pares de manifiestos/configuración"),
 ):
     """
-    👻 Descubre acoplamientos fantasma e invisibles entre módulos.
+    👻 Descubre acoplamientos fantasma e invisibles entre módulos de código.
     """
     try:
         engine = GitEngine(path.resolve())
@@ -341,6 +351,8 @@ def coupling(
             min_confidence=min_confidence,
             exclude_generated=not include_generated,
             exclude_infra=not include_infra,
+            exclude_config_pairs=not include_config,
+            exclude_l10n_sync=True,
         )
 
         if not couplings:
@@ -369,7 +381,7 @@ def coupling(
         if high_conf:
             console.print(f"\n[bold red]🔴 {len(high_conf)} par(es) con confianza crítica (≥80%):[/bold red] estas dependencias no documentadas son las que más riesgo representan para refactorizaciones futuras.")
         if not include_generated:
-            console.print("\n[dim]ℹ️  Archivos auto-generados excluidos del análisis para reducir falsos positivos.[/dim]")
+            console.print("\n[dim]ℹ️  Archivos auto-generados, manifiestos de configuración y sincronizaciones de i18n excluidos para eliminar falsos positivos.[/dim]")
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {e}")
         sys.exit(1)
@@ -455,10 +467,9 @@ def scan(
         hotspots = engine.calculate_hotspots(commits, exclude_generated=not include_generated)
         couplings = engine.detect_ghost_coupling(commits, exclude_generated=not include_generated)
         bus_factors = engine.calculate_bus_factor(commits)
+        health_score = engine.calculate_health_score(commits, hotspots, couplings, bus_factors)
 
         critical_count = sum(1 for h in hotspots if h.risk_level == "CRITICAL")
-        high_count = sum(1 for h in hotspots if h.risk_level == "HIGH")
-        health_score = max(100 - (critical_count * 8) - (high_count * 3) - (len(couplings)), 15)
 
         recs = [
             f"Añadir tests unitarios y de integración prioritariamente a los {critical_count} archivos críticos.",

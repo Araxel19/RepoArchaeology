@@ -1,6 +1,6 @@
 """
 Motor de análisis forense y minería de Git de alto rendimiento.
-Incluye filtrado inteligente de archivos generados/automáticos para análisis más precisos.
+Incluye filtrado inteligente de archivos generados/automáticos, infraestructura y sincronizaciones naturales.
 """
 import subprocess
 from datetime import datetime
@@ -15,8 +15,7 @@ from repoarchaeology.engines.ast_engine import ASTEngine
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Patrones de archivos auto-generados, de configuración de infraestructura
-# y de soporte que NO aportan valor al análisis de código fuente.
+# Patrones de archivos auto-generados
 # ─────────────────────────────────────────────────────────────────────────────
 GENERATED_FILE_PATTERNS: List[re.Pattern] = [
     # Lock / dependency snapshot files
@@ -55,8 +54,8 @@ GENERATED_FILE_PATTERNS: List[re.Pattern] = [
     re.compile(r"(^|/)\.coverage"),
 
     # Documentation and changelog auto-gen
-    re.compile(r"(^|/)CHANGELOG\.md$"),
-    re.compile(r"(^|/)CHANGELOG\.rst$"),
+    re.compile(r"(^|/)CHANGELOG\.md$", re.IGNORECASE),
+    re.compile(r"(^|/)CHANGELOG\.rst$", re.IGNORECASE),
 
     # IDE and tooling metadata
     re.compile(r"(^|/)\.idea/"),
@@ -74,26 +73,28 @@ GENERATED_FILE_PATTERNS: List[re.Pattern] = [
     re.compile(r"\.(bin|exe|dll|so|dylib|wasm)$"),
 ]
 
-# Archivos de infraestructura que cambian pero no representan deuda técnica del código
+# Archivos de infraestructura, documentación y scripts de empaquetado
 INFRA_PATTERNS: List[re.Pattern] = [
-    re.compile(r"(^|/)README(\.md|\.rst|\.txt)?$", re.IGNORECASE),
-    re.compile(r"(^|/)LICENSE(\.md|\.txt)?$", re.IGNORECASE),
-    re.compile(r"(^|/)CONTRIBUTING(\.md|\.rst)?$", re.IGNORECASE),
+    re.compile(r"\.md$", re.IGNORECASE),
+    re.compile(r"\.rst$", re.IGNORECASE),
+    re.compile(r"\.txt$", re.IGNORECASE),
+    re.compile(r"(^|/)LICENSE", re.IGNORECASE),
     re.compile(r"(^|/)\.gitignore$"),
     re.compile(r"(^|/)\.gitattributes$"),
     re.compile(r"(^|/)Makefile$"),
     re.compile(r"(^|/)Dockerfile$"),
     re.compile(r"(^|/)docker-compose\.ya?ml$"),
-    re.compile(r"(^|/)\.env\.example$"),
+    re.compile(r"(^|/)\.env(\..+)?$"),
     re.compile(r"(^|/)\.github/"),
     re.compile(r"(^|/)\.gitlab-ci\.ya?ml$"),
     re.compile(r"(^|/)\.(travis|circleci|jenkins)\.ya?ml$"),
+    re.compile(r"\.(iss|bat|cmd|ps1)$", re.IGNORECASE),
+    re.compile(r"(^|/)installer/", re.IGNORECASE),
 ]
 
-# Archivos de configuración de alto nivel que pueden ser válidos para hotspot en proyectos pequeños,
-# pero que en proyectos grandes son normales de cambiar frecuentemente.
+# Archivos de configuración de alto nivel (manifiestos de paquetes y dependencias)
 HIGH_LEVEL_CONFIG_PATTERNS: List[re.Pattern] = [
-    re.compile(r"(^|/)pubspec\.yaml$"),
+    re.compile(r"(^|/)pubspec\.ya?ml$"),
     re.compile(r"(^|/)package\.json$"),
     re.compile(r"(^|/)pyproject\.toml$"),
     re.compile(r"(^|/)setup\.cfg$"),
@@ -107,35 +108,36 @@ HIGH_LEVEL_CONFIG_PATTERNS: List[re.Pattern] = [
     re.compile(r"(^|/)go\.mod$"),
 ]
 
-# Etiquetas de rol para diagnósticos enriquecidos
+# Etiquetas de rol compactas para evitar saltos de línea antiestéticos
 ROLE_LABELS: Dict[str, str] = {
-    ".dart":  "Componente Flutter/Dart",
-    ".py":    "Módulo Python",
-    ".js":    "Módulo JavaScript",
-    ".jsx":   "Componente React",
-    ".ts":    "Módulo TypeScript",
-    ".tsx":   "Componente React/TS",
-    ".go":    "Paquete Go",
-    ".rs":    "Módulo Rust",
-    ".java":  "Clase Java",
-    ".kt":    "Archivo Kotlin",
-    ".swift": "Archivo Swift",
-    ".vue":   "Componente Vue",
-    ".svelte":"Componente Svelte",
-    ".yaml":  "Configuración YAML",
-    ".toml":  "Configuración TOML",
-    ".json":  "Configuración JSON",
-    ".arb":   "Recurso de Localización",
-    ".sql":   "Esquema/Query SQL",
-    ".sh":    "Script de Shell",
-    ".html":  "Plantilla HTML",
-    ".css":   "Hoja de Estilos",
-    ".scss":  "Hoja de Estilos SCSS",
+    ".dart":  "Dart",
+    ".py":    "Python",
+    ".js":    "JavaScript",
+    ".jsx":   "React",
+    ".ts":    "TypeScript",
+    ".tsx":   "React TS",
+    ".go":    "Go",
+    ".rs":    "Rust",
+    ".java":  "Java",
+    ".kt":    "Kotlin",
+    ".swift": "Swift",
+    ".vue":   "Vue",
+    ".svelte":"Svelte",
+    ".yaml":  "Config YAML",
+    ".yml":   "Config YAML",
+    ".toml":  "Config TOML",
+    ".json":  "JSON",
+    ".arb":   "Localización",
+    ".sql":   "SQL",
+    ".sh":    "Shell Script",
+    ".html":  "HTML",
+    ".css":   "CSS",
+    ".scss":  "SCSS",
 }
 
 
 def is_auto_generated(file_path: str) -> bool:
-    """Detecta si un archivo es generado automáticamente (no escrito a mano)."""
+    """Detecta si un archivo es generado automáticamente."""
     for pattern in GENERATED_FILE_PATTERNS:
         if pattern.search(file_path):
             return True
@@ -143,7 +145,7 @@ def is_auto_generated(file_path: str) -> bool:
 
 
 def is_infra_only(file_path: str) -> bool:
-    """Detecta si un archivo es solo infraestructura/documentación del repo."""
+    """Detecta si un archivo es solo infraestructura/documentación/script del repo."""
     for pattern in INFRA_PATTERNS:
         if pattern.search(file_path):
             return True
@@ -151,80 +153,64 @@ def is_infra_only(file_path: str) -> bool:
 
 
 def is_high_level_config(file_path: str) -> bool:
-    """Detecta si un archivo es configuración de alto nivel del proyecto."""
+    """Detecta si un archivo es configuración de manifiesto/dependencias."""
     for pattern in HIGH_LEVEL_CONFIG_PATTERNS:
         if pattern.search(file_path):
             return True
     return False
 
 
-def should_exclude_from_analysis(file_path: str) -> bool:
-    """Decide si un archivo debe excluirse del análisis de calidad de código."""
-    return is_auto_generated(file_path) or is_infra_only(file_path)
+def is_l10n(file_path: str) -> bool:
+    """Detecta si es un archivo de recursos de traducción/localización."""
+    fp = file_path.lower()
+    return Path(file_path).suffix.lower() in (".arb", ".po", ".strings") or "/l10n/" in fp or "/i18n/" in fp or "/locales/" in fp
 
 
 def get_file_role(file_path: str) -> str:
-    """Devuelve un rol semántico legible para el archivo según su extensión."""
+    """Devuelve un rol semántico compacto para el archivo."""
+    if is_high_level_config(file_path):
+        return "Configuración"
+    if is_l10n(file_path):
+        return "Localización"
     suffix = Path(file_path).suffix.lower()
-    return ROLE_LABELS.get(suffix, f"Archivo {suffix}" if suffix else "Archivo de código")
+    return ROLE_LABELS.get(suffix, suffix[1:].upper() if suffix else "Código")
 
 
 def generate_coupling_insight(fa: str, fb: str, co_count: int, confidence: float) -> str:
     """
     Genera un diagnóstico enriquecido y accionable para el acoplamiento detectado.
-    Va más allá de la extensión y evalúa el patrón arquitectónico subyacente.
+    Evalúa el patrón arquitectónico subyacente entre archivos de código fuente.
     """
     ext_a = Path(fa).suffix.lower()
     ext_b = Path(fb).suffix.lower()
-    name_a = Path(fa).name
-    name_b = Path(fb).name
     dir_a = str(Path(fa).parent)
     dir_b = str(Path(fb).parent)
 
-    # Detección semántica por nombre
+    # Detección semántica por arquitectura en capas
     if ("model" in fa.lower() or "domain" in fa.lower()) and ("repo" in fb.lower() or "data" in fb.lower()):
-        return "Dependencia directa modelo→repositorio. Evalúa si el dominio filtra lógica de persistencia."
+        return "Dependencia modelo→repositorio. Evalúa si el dominio filtra lógica de persistencia."
     if ("model" in fb.lower() or "domain" in fb.lower()) and ("repo" in fa.lower() or "data" in fa.lower()):
-        return "Dependencia directa modelo→repositorio. Evalúa si el dominio filtra lógica de persistencia."
+        return "Dependencia modelo→repositorio. Evalúa si el dominio filtra lógica de persistencia."
 
-    if ("presenter" in fa.lower() or "viewmodel" in fa.lower()) and ("page" in fb.lower() or "screen" in fb.lower() or "view" in fb.lower()):
-        return "Presenter/ViewModel fuertemente acoplado a su vista. Verifica separación de responsabilidades."
-    if ("presenter" in fb.lower() or "viewmodel" in fb.lower()) and ("page" in fa.lower() or "screen" in fa.lower() or "view" in fa.lower()):
-        return "Presenter/ViewModel fuertemente acoplado a su vista. Verifica separación de responsabilidades."
+    if ("presenter" in fa.lower() or "viewmodel" in fa.lower() or "bloc" in fa.lower() or "cubit" in fa.lower()) and ("page" in fb.lower() or "screen" in fb.lower() or "view" in fb.lower()):
+        return "Presenter/Bloc fuertemente ligado a su vista. Verifica separación clara de estado y UI."
+    if ("presenter" in fb.lower() or "viewmodel" in fb.lower() or "bloc" in fb.lower() or "cubit" in fb.lower()) and ("page" in fa.lower() or "screen" in fa.lower() or "view" in fa.lower()):
+        return "Presenter/Bloc fuertemente ligado a su vista. Verifica separación clara de estado y UI."
 
     if "controller" in fa.lower() and "route" in fb.lower():
-        return "Controlador y ruta cambian juntos. Considera separar la definición de rutas del controlador."
+        return "Controlador y rutas cambian juntos. Considera separar la definición de rutas del controlador."
     if "controller" in fb.lower() and "route" in fa.lower():
-        return "Controlador y ruta cambian juntos. Considera separar la definición de rutas del controlador."
+        return "Controlador y rutas cambian juntos. Considera separar la definición de rutas del controlador."
 
     if "service" in fa.lower() and "model" in fb.lower():
-        return "Servicio vinculado a modelo. Si es frecuente, considera un UseCase o DTO intermedio."
+        return "Servicio vinculado a modelo. Si es frecuente, evalúa un UseCase o DTO intermedio."
     if "service" in fb.lower() and "model" in fa.lower():
-        return "Servicio vinculado a modelo. Si es frecuente, considera un UseCase o DTO intermedio."
+        return "Servicio vinculado a modelo. Si es frecuente, evalúa un UseCase o DTO intermedio."
 
     if "test" in fa.lower() or "test" in fb.lower() or "_test." in fa or "_test." in fb:
-        return "Archivo de test acoplado al módulo. Es esperable, verifica que el test cubre todos los casos."
+        return "Test sincronizado con su módulo. Normal; asegura que cubre los casos límites del cambio."
 
-    # Detección de patrón de localización
-    if ext_a in (".arb",) or ext_b in (".arb",):
-        return "Archivos de localización que cambian juntos. Normal si se añaden textos; verifica que no falten traducciones."
-
-    # Por capas arquitectónicas
-    if dir_a == dir_b:
-        parts = dir_a.lower().split("/")
-        if "data" in parts or "datasource" in parts:
-            return "Dos archivos de la capa de datos cambian juntos. Riesgo de lógica de negocio mezclada con persistencia."
-        if "domain" in parts:
-            return "Dos entidades/casos de uso cambian en sincronía. Evalúa si comparten responsabilidad o pueden unificarse."
-        if "presentation" in parts or "presenter" in parts or "ui" in parts:
-            return "Dos componentes de UI cambian juntos. Considera extraer lógica compartida a un widget/componente base."
-        if "service" in parts or "services" in parts:
-            return "Dos servicios se modifican en conjunto. Pueden compartir dependencias o lógica transversal."
-        if "feature" in parts or "features" in parts:
-            return "Co-modificación dentro de la misma feature. Normal si es la misma historia de usuario; verifica cohesión."
-        return "Co-modificación en la misma carpeta. Evalúa si los archivos pueden combinarse o si comparten demasiada lógica."
-
-    # Capas distintas
+    # Capas arquitectónicas Clean / Hexagonal
     layers_a = set(dir_a.lower().split("/"))
     layers_b = set(dir_b.lower().split("/"))
     cross_layer_markers = {"data", "domain", "presentation", "service", "ui", "routes", "api", "models"}
@@ -234,12 +220,15 @@ def generate_coupling_insight(fa: str, fb: str, co_count: int, confidence: float
     if a_layer and b_layer and a_layer != b_layer:
         la = next(iter(a_layer))
         lb = next(iter(b_layer))
-        return f"Acoplamiento entre capas '{la}' y '{lb}'. Verifica que no hay dependencias invertidas."
+        return f"Acoplamiento entre capas '{la}' y '{lb}'. Verifica que se respetan las reglas de dependencia."
+
+    if dir_a == dir_b:
+        return "Co-modificación en la misma feature o carpeta. Evalúa si comparten demasiada lógica interna."
 
     if ext_a != ext_b:
-        return f"Acoplamiento cross-tecnología ({ext_a} ↔ {ext_b}). Podría indicar lógica duplicada o falta de abstracción."
+        return f"Acoplamiento entre tecnologías ({ext_a} ↔ {ext_b}). Podría indicar falta de abstracción."
 
-    return "Co-modificación recurrente. Considera extraer lógica común o documentar la dependencia explícitamente."
+    return "Co-modificación recurrente. Evalúa extraer lógica compartida o documentar la dependencia."
 
 
 class GitEngine:
@@ -335,7 +324,7 @@ class GitEngine:
         """
         Calcula la métrica de Code Churn ponderada con fix rate y autor principal.
         Filtra automáticamente archivos generados e infraestructura para centrarse
-        en código fuente real escrito por humanos.
+        en código fuente real.
         """
         if not commits:
             return []
@@ -402,11 +391,12 @@ class GitEngine:
         min_confidence: float = 0.5,
         exclude_generated: bool = True,
         exclude_infra: bool = True,
+        exclude_config_pairs: bool = True,
+        exclude_l10n_sync: bool = True,
     ) -> List[CouplingPair]:
         """
-        Detecta pares de archivos que cambian habitualmente juntos.
-        Filtra automáticamente archivos generados/infra para reducir falsos positivos.
-        Genera diagnósticos enriquecidos y accionables por patrón arquitectónico.
+        Detecta pares de archivos que cambian habitualmente juntos (acoplamiento fantasma).
+        Excluye pares espurios (manifiestos de paquetes con código, sincronización de traducciones i18n).
         """
         if not commits:
             return []
@@ -430,6 +420,15 @@ class GitEngine:
             for i in range(len(files)):
                 for j in range(i + 1, len(files)):
                     fa, fb = sorted([files[i], files[j]])
+
+                    # Filtrar pares manifiesto de dependencias ↔ código fuente
+                    if exclude_config_pairs and (is_high_level_config(fa) or is_high_level_config(fb)):
+                        continue
+
+                    # Filtrar sincronización natural de traducciones (ej: app_es.arb ↔ app_en.arb)
+                    if exclude_l10n_sync and is_l10n(fa) and is_l10n(fb):
+                        continue
+
                     pair_counts[(fa, fb)] += 1
 
         couplings: List[CouplingPair] = []
@@ -454,6 +453,50 @@ class GitEngine:
 
         couplings.sort(key=lambda x: (x.co_commit_count, x.confidence), reverse=True)
         return couplings
+
+    def calculate_health_score(
+        self,
+        commits: List[CommitInfo],
+        hotspots: List[FileHotspot],
+        couplings: List[CouplingPair],
+        bus_factors: List[AuthorBusFactor],
+    ) -> int:
+        """
+        Calcula un puntaje de salud calibrado proporcional al tamaño del repositorio.
+        Puntaje sobre 100 basado en densidad de puntos críticos, acoplamiento real,
+        tasa de fixes y concentración de equipo.
+        """
+        if not commits or not hotspots:
+            return 100
+
+        total_files = len(hotspots)
+        critical_count = sum(1 for h in hotspots if h.risk_level == "CRITICAL")
+        high_count = sum(1 for h in hotspots if h.risk_level == "HIGH")
+
+        # 1. Densidad de Hotspots (Máx 35 pts de penalización)
+        crit_density = critical_count / total_files
+        high_density = high_count / total_files
+        hotspot_penalty = (crit_density * 180.0) + (high_density * 60.0)
+        hotspot_penalty = min(hotspot_penalty, 35.0)
+
+        # 2. Densidad de Acoplamientos Fantasma Reales (Máx 30 pts de penalización)
+        crit_couplings = sum(1 for c in couplings if c.confidence >= 0.8)
+        norm_coupling_factor = (len(couplings) * 0.4 + crit_couplings * 1.6) / max(total_files * 0.08, 3.0)
+        coupling_penalty = min(norm_coupling_factor * 10.0, 30.0)
+
+        # 3. Presión de Bugs / Fix Rate (Máx 20 pts de penalización)
+        total_fixes = sum(1 for c in commits if c.is_fix)
+        fix_ratio = total_fixes / max(len(commits), 1)
+        fix_penalty = min(fix_ratio * 35.0, 20.0)
+
+        # 4. Bus Factor (Máx 15 pts) - Solo penaliza si es un equipo multi-autor (>2 desarrolladores)
+        bus_penalty = 0.0
+        if len(bus_factors) > 2 and bus_factors[0].ownership_percentage > 70.0:
+            excess = bus_factors[0].ownership_percentage - 70.0
+            bus_penalty = min(excess * 0.5, 15.0)
+
+        raw_score = 100.0 - hotspot_penalty - coupling_penalty - fix_penalty - bus_penalty
+        return max(min(int(round(raw_score)), 100), 20)
 
     def calculate_bus_factor(self, commits: List[CommitInfo]) -> List[AuthorBusFactor]:
         """Calcula la concentración de propiedad de código por autor (solo código fuente)."""
