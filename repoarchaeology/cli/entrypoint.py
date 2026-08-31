@@ -26,8 +26,9 @@ from repoarchaeology.exporters.json_exporter import JSONExporter
 
 app = typer.Typer(
     name="repoarch",
-    help="🏛️ RepoArchaeology - Arqueología forense de repositorios, linaje de decisiones y deuda técnica.",
-    add_completion=False
+    help="🏛️ [bold blue]RepoArchaeology[/bold blue] — Plataforma forense de repositorios Git, linaje de decisiones, acoplamiento invisible y deuda técnica.",
+    add_completion=False,
+    rich_markup_mode="rich"
 )
 console = Console()
 
@@ -42,9 +43,9 @@ def version_callback(value: bool):
 def main_callback(
     ctx: typer.Context,
     version: Optional[bool] = typer.Option(
-        None, "--version", "-v", help="Muestra la versión de RepoArchaeology", callback=version_callback, is_eager=True
+        None, "--version", "-v", help="Muestra la versión instalada de RepoArchaeology", callback=version_callback, is_eager=True
     ),
-    no_update_check: bool = typer.Option(False, "--no-update-check", help="Desactiva la comprobación automática de actualizaciones")
+    no_update_check: bool = typer.Option(False, "--no-update-check", help="Desactiva la comprobación automática de actualizaciones al iniciar")
 ):
     """Comprobación de actualizaciones en segundo plano antes de ejecutar comandos."""
     if ctx.invoked_subcommand != "update" and not no_update_check:
@@ -54,7 +55,8 @@ def main_callback(
 @app.command(name="update")
 def update_cmd():
     """
-    🔄 Actualiza RepoArchaeology a la última versión disponible desde GitHub.
+    🔄 [bold]Actualiza RepoArchaeology[/bold] a la última versión disponible desde GitHub.
+    Descarga cambios de forma segura (fast-forward), actualiza dependencias y valida la instalación.
     """
     perform_update()
 
@@ -143,16 +145,19 @@ def _generate_hotspot_action(file_path: str, fix_count: int, authors_count: int,
 
 @app.command(name="doctor")
 def doctor(
-    path: Path = typer.Option(Path("."), "--path", "-p", help="Ruta al repositorio Git"),
-    commits_limit: int = typer.Option(200, "--commits", "-c", help="Límite de commits a analizar"),
+    path: Path = typer.Option(Path("."), "--path", "-p", help="Ruta al repositorio Git (por defecto: directorio actual)"),
+    commits_limit: int = typer.Option(200, "--commits", "-c", help="Cantidad de commits a analizar"),
     html: bool = typer.Option(False, "--html", help="Genera y abre el reporte visual interactivo en HTML"),
-    include_generated: bool = typer.Option(False, "--include-generated", help="Incluir archivos auto-generados"),
-    include_infra: bool = typer.Option(False, "--include-infra", help="Incluir archivos de infraestructura/docs"),
+    include_generated: bool = typer.Option(False, "--include-generated", help="Incluir archivos auto-generados (lockfiles, generated code)"),
+    include_infra: bool = typer.Option(False, "--include-infra", help="Incluir archivos de infraestructura y scripts"),
     include_config: bool = typer.Option(False, "--include-config", help="Incluir manifiestos de paquetes (pubspec.yaml, package.json)"),
     include_l10n: bool = typer.Option(False, "--include-l10n", help="Incluir recursos de traducción (ej: .arb, .po)"),
 ):
     """
-    🩺 Realiza un diagnóstico integral de salud histórica sobre el código del repositorio.
+    🩺 [bold]Chequeo rápido de salud histórica (5 minutos)[/bold].
+    
+    Evalúa el estado del código fuente, calcula el puntaje de salud histórica (0-100),
+    detecta los 5 archivos con mayor riesgo y genera recomendaciones inmediatas por tipo de archivo.
     """
     try:
         engine = GitEngine(path.resolve())
@@ -193,13 +198,13 @@ def doctor(
         # ── Tabla compacta de métricas (expand=True para aprovechar toda la pantalla) ──
         table = Table(title="🔥 Archivos de Código en Mayor Riesgo", border_style="blue", show_lines=True, expand=True)
         table.add_column("#", style="dim", justify="right", width=3)
-        table.add_column("Archivo", style="cyan", no_wrap=False, overflow="fold")
-        table.add_column("Tipo", style="dim")
-        table.add_column("Commits", justify="right")
-        table.add_column("Fixes", justify="right")
-        table.add_column("Autores", justify="right")
-        table.add_column("Propietario", style="magenta")
-        table.add_column("Riesgo", justify="center")
+        table.add_column("Archivo", style="cyan", ratio=4, no_wrap=False, overflow="fold")
+        table.add_column("Tipo", style="dim", width=12)
+        table.add_column("Commits", justify="right", width=8)
+        table.add_column("Fixes", justify="right", width=6)
+        table.add_column("Autores", justify="right", width=8)
+        table.add_column("Propietario", style="magenta", ratio=3, no_wrap=False, overflow="fold")
+        table.add_column("Riesgo", justify="center", width=10)
 
         top_hotspots = hotspots[:5]
         for idx, h in enumerate(top_hotspots, start=1):
@@ -295,16 +300,19 @@ def doctor(
 
 @app.command(name="churn")
 def churn(
-    path: Path = typer.Option(Path("."), "--path", "-p", help="Ruta al repositorio"),
-    top: int = typer.Option(10, "--top", "-t", help="Número de archivos a listar"),
-    commits_limit: int = typer.Option(300, "--commits", "-c", help="Límite de commits"),
+    path: Path = typer.Option(Path("."), "--path", "-p", help="Ruta al repositorio Git"),
+    top: int = typer.Option(10, "--top", "-t", help="Cantidad de archivos a mostrar en el ranking de puntos calientes"),
+    commits_limit: int = typer.Option(300, "--commits", "-c", help="Cantidad máxima de commits a analizar"),
     include_generated: bool = typer.Option(False, "--include-generated", help="Incluir archivos auto-generados"),
-    include_infra: bool = typer.Option(False, "--include-infra", help="Incluir archivos de infraestructura"),
+    include_infra: bool = typer.Option(False, "--include-infra", help="Incluir archivos de infraestructura y scripts"),
     include_config: bool = typer.Option(False, "--include-config", help="Incluir manifiestos de paquetes"),
     include_l10n: bool = typer.Option(False, "--include-l10n", help="Incluir recursos de traducción"),
 ):
     """
-    🔥 Detecta puntos calientes (hotspots) y alta rotación de código.
+    🔥 [bold]Detecta Puntos Calientes (Hotspots) e Inestabilidad de Código[/bold].
+    
+    Identifica qué archivos cambian constantemente y concentran la mayor cantidad
+    de correcciones de errores (bugfixes) y autores, indicando alta deuda técnica.
     """
     try:
         engine = GitEngine(path.resolve())
@@ -319,7 +327,7 @@ def churn(
 
         table = Table(title=f"🔥 Top {top} Puntos Calientes de Código (Code Churn)", border_style="blue", show_lines=True, expand=True)
         table.add_column("#", justify="right", style="dim", width=3)
-        table.add_column("Archivo", style="cyan", no_wrap=False, overflow="fold")
+        table.add_column("Archivo", style="cyan", ratio=4, no_wrap=False, overflow="fold")
         table.add_column("Tipo", style="dim", width=12)
         table.add_column("Commits", justify="right", width=8)
         table.add_column("Fixes", justify="right", width=6)
@@ -363,15 +371,18 @@ def churn(
 
 @app.command(name="coupling")
 def coupling(
-    path: Path = typer.Option(Path("."), "--path", "-p", help="Ruta al repositorio"),
-    min_confidence: float = typer.Option(0.5, "--min-confidence", "-m", help="Umbral mínimo de correlación (0.1 - 1.0)"),
-    commits_limit: int = typer.Option(400, "--commits", "-c", help="Límite de commits"),
+    path: Path = typer.Option(Path("."), "--path", "-p", help="Ruta al repositorio Git"),
+    min_confidence: float = typer.Option(0.5, "--min-confidence", "-m", help="Umbral mínimo de co-dependencia (0.1 a 1.0; 0.8 = 80%)"),
+    commits_limit: int = typer.Option(400, "--commits", "-c", help="Cantidad máxima de commits a analizar"),
     include_generated: bool = typer.Option(False, "--include-generated", help="Incluir archivos auto-generados"),
     include_infra: bool = typer.Option(False, "--include-infra", help="Incluir archivos de infraestructura"),
     include_config: bool = typer.Option(False, "--include-config", help="Incluir pares de manifiestos/configuración"),
 ):
     """
-    👻 Descubre acoplamientos fantasma e invisibles entre módulos de código.
+    👻 [bold]Descubre Acoplamientos Fantasma y Dependencias Ocultas[/bold].
+    
+    Encuentra pares de archivos que no tienen imports directos pero SIEMPRE
+    se modifican juntos en los mismos commits, revelando dependencias no documentadas.
     """
     try:
         engine = GitEngine(path.resolve())
@@ -425,12 +436,15 @@ def coupling(
 
 @app.command(name="lore")
 def lore(
-    file_path: Optional[str] = typer.Argument(None, help="Ruta relativa del archivo a auditar"),
-    path: Path = typer.Option(Path("."), "--path", "-p", help="Ruta al repositorio"),
-    commits_limit: int = typer.Option(300, "--commits", "-c", help="Límite de commits")
+    file_path: Optional[str] = typer.Argument(None, help="Ruta relativa del archivo a auditar (opcional: si se omite, analiza el hotspot más crítico)"),
+    path: Path = typer.Option(Path("."), "--path", "-p", help="Ruta al repositorio Git"),
+    commits_limit: int = typer.Option(300, "--commits", "-c", help="Cantidad máxima de commits a revisar en el historial del archivo")
 ):
     """
-    📜 Reconstruye la historia, contexto y linaje de decisiones de un archivo.
+    📜 [bold]Reconstruye el Linaje Histórico y Contexto de Decisiones con IA[/bold].
+    
+    Explica cuándo nació el archivo, quién lo creó, cómo ha evolucionado a lo largo
+    del tiempo, qué desarrolladores han participado y si sufre de regresiones frecuentes.
     """
     try:
         engine = GitEngine(path.resolve())
@@ -470,12 +484,15 @@ def lore(
 
 @app.command(name="breaking")
 def breaking(
-    base: str = typer.Option("main", "--base", "-b", help="Rama base estable"),
-    target: str = typer.Option("develop", "--target", "-t", help="Rama objetivo con cambios"),
-    path: Path = typer.Option(Path("."), "--path", "-p", help="Ruta al repositorio")
+    base: str = typer.Option("main", "--base", "-b", help="Rama base estable (contrato de referencia)"),
+    target: str = typer.Option("develop", "--target", "-t", help="Rama objetivo con cambios a comparar"),
+    path: Path = typer.Option(Path("."), "--path", "-p", help="Ruta al repositorio Git")
 ):
     """
-    ⚡ Compara ramas y detecta eliminación de firmas públicas (Breaking Changes).
+    ⚡ [bold]Detecta Cambios que Rompen Contratos (Breaking Changes)[/bold].
+    
+    Compara dos ramas y analiza sintácticamente (mediante AST) si se eliminaron o modificaron
+    funciones, métodos, clases o símbolos públicos que romperían integraciones.
     """
     try:
         engine = GitEngine(path.resolve())
@@ -502,17 +519,23 @@ def breaking(
 
 @app.command(name="scan")
 def scan(
-    path: Path = typer.Option(Path("."), "--path", "-p", help="Ruta al repositorio"),
-    commits_limit: int = typer.Option(400, "--commits", "-c", help="Límite de commits a analizar"),
-    export: Optional[Path] = typer.Option(None, "--export", "-e", help="Ruta de exportación (.md, .html, .json)"),
-    html: bool = typer.Option(False, "--html", help="Genera y abre el reporte visual interactivo en HTML"),
+    path: Path = typer.Option(Path("."), "--path", "-p", help="Ruta al repositorio Git"),
+    commits_limit: int = typer.Option(400, "--commits", "-c", help="Cantidad de commits a inspeccionar en el historial"),
+    export: Optional[Path] = typer.Option(None, "--export", "-e", help="Ruta de archivo para guardar el reporte (.html, .json, .md)"),
+    html: bool = typer.Option(False, "--html", help="Genera y abre el reporte visual interactivo en HTML con scroll/sliders"),
     include_generated: bool = typer.Option(False, "--include-generated", help="Incluir archivos auto-generados"),
-    include_infra: bool = typer.Option(False, "--include-infra", help="Incluir archivos de infraestructura"),
-    include_config: bool = typer.Option(False, "--include-config", help="Incluir manifiestos de paquetes"),
+    include_infra: bool = typer.Option(False, "--include-infra", help="Incluir archivos de infraestructura y documentación"),
+    include_config: bool = typer.Option(False, "--include-config", help="Incluir manifiestos de paquetes (pubspec.yaml, package.json)"),
     include_l10n: bool = typer.Option(False, "--include-l10n", help="Incluir recursos de traducción"),
 ):
     """
-    📊 Ejecuta una auditoría forense integral completa sobre todo el repositorio.
+    📊 [bold]Auditoría forense integral y profunda[/bold].
+    
+    Realiza una radiografía completa del repositorio:
+    • Top 10 Puntos Calientes de código (Code Churn).
+    • Mapa de Acoplamientos Fantasma (Co-dependencias ocultas entre módulos).
+    • Matriz de Propiedad de Código y Concentración (Bus Factor).
+    • Plan Maestro de Mitigación de Deuda Técnica priorizado.
     """
     try:
         engine = GitEngine(path.resolve())
@@ -689,4 +712,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
