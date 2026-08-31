@@ -320,11 +320,13 @@ class GitEngine:
         commits: List[CommitInfo],
         exclude_generated: bool = True,
         exclude_infra: bool = True,
+        exclude_config: bool = True,
+        exclude_l10n: bool = True,
     ) -> List[FileHotspot]:
         """
         Calcula la métrica de Code Churn ponderada con fix rate y autor principal.
-        Filtra automáticamente archivos generados e infraestructura para centrarse
-        en código fuente real.
+        Filtra automáticamente archivos generados, infraestructura, manifiestos de configuración
+        y archivos de traducción para centrarse exclusivamente en código fuente real.
         """
         if not commits:
             return []
@@ -338,6 +340,10 @@ class GitEngine:
                 if exclude_generated and is_auto_generated(f):
                     continue
                 if exclude_infra and is_infra_only(f):
+                    continue
+                if exclude_config and is_high_level_config(f):
+                    continue
+                if exclude_l10n and is_l10n(f):
                     continue
                 file_commits[f] += 1
                 file_authors[f][c.author_name] += 1

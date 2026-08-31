@@ -145,11 +145,13 @@ def _generate_hotspot_action(file_path: str, fix_count: int, authors_count: int,
 def doctor(
     path: Path = typer.Option(Path("."), "--path", "-p", help="Ruta al repositorio Git"),
     commits_limit: int = typer.Option(200, "--commits", "-c", help="Límite de commits a analizar"),
-    include_generated: bool = typer.Option(False, "--include-generated", help="Incluir archivos auto-generados en el análisis"),
-    include_infra: bool = typer.Option(False, "--include-infra", help="Incluir archivos de infraestructura/docs en el análisis"),
+    include_generated: bool = typer.Option(False, "--include-generated", help="Incluir archivos auto-generados"),
+    include_infra: bool = typer.Option(False, "--include-infra", help="Incluir archivos de infraestructura/docs"),
+    include_config: bool = typer.Option(False, "--include-config", help="Incluir manifiestos de paquetes (pubspec.yaml, package.json)"),
+    include_l10n: bool = typer.Option(False, "--include-l10n", help="Incluir recursos de traducción (ej: .arb, .po)"),
 ):
     """
-    🩺 Realiza un diagnóstico integral de salud histórica sobre el repositorio.
+    🩺 Realiza un diagnóstico integral de salud histórica sobre el código del repositorio.
     """
     try:
         engine = GitEngine(path.resolve())
@@ -165,11 +167,15 @@ def doctor(
                 commits,
                 exclude_generated=not include_generated,
                 exclude_infra=not include_infra,
+                exclude_config=not include_config,
+                exclude_l10n=not include_l10n,
             )
             couplings = engine.detect_ghost_coupling(
                 commits,
                 exclude_generated=not include_generated,
                 exclude_infra=not include_infra,
+                exclude_config_pairs=not include_config,
+                exclude_l10n_sync=not include_l10n,
             )
             bus_factors = engine.calculate_bus_factor(commits)
             health_score = engine.calculate_health_score(commits, hotspots, couplings, bus_factors)
@@ -252,14 +258,13 @@ def doctor(
             high_conf = sum(1 for c in couplings if c.confidence >= 0.8)
             console.print(
                 f"\n[bold yellow]👻 {len(couplings)} acoplamiento(s) arquitectónico(s) detectado(s)[/bold yellow] "
-                f"([bold red]{high_conf} con confianza ≥80%[/bold red]). "
+                f"([bold red]{high_conf} con alta co-dependencia ≥80%[/bold red]). "
                 f"Usa [cyan]repoarch coupling[/cyan] para ver el diagnóstico modular.\n"
             )
         else:
             console.print("\n[green]✓ No se detectaron acoplamientos fantasma significativos en la arquitectura.[/green]\n")
 
-        if not include_generated:
-            console.print("[dim]ℹ️  Archivos auto-generados e infraestructura excluidos del análisis. Usa --include-generated o --include-infra para incluirlos.[/dim]\n")
+        console.print("[dim]ℹ️  Solo se analiza código fuente real. Archivos generados, manifiestos y traducciones están excluidos.[/dim]\n")
 
     except Exception as e:
         console.print(f"[bold red]Error durante el diagnóstico:[/bold red] {e}")
@@ -273,6 +278,8 @@ def churn(
     commits_limit: int = typer.Option(300, "--commits", "-c", help="Límite de commits"),
     include_generated: bool = typer.Option(False, "--include-generated", help="Incluir archivos auto-generados"),
     include_infra: bool = typer.Option(False, "--include-infra", help="Incluir archivos de infraestructura"),
+    include_config: bool = typer.Option(False, "--include-config", help="Incluir manifiestos de paquetes"),
+    include_l10n: bool = typer.Option(False, "--include-l10n", help="Incluir recursos de traducción"),
 ):
     """
     🔥 Detecta puntos calientes (hotspots) y alta rotación de código.
@@ -284,6 +291,8 @@ def churn(
             commits,
             exclude_generated=not include_generated,
             exclude_infra=not include_infra,
+            exclude_config=not include_config,
+            exclude_l10n=not include_l10n,
         )
 
         table = Table(title=f"🔥 Top {top} Puntos Calientes de Código (Code Churn)", border_style="blue", show_lines=True)
@@ -324,8 +333,7 @@ def churn(
                 padding=(0, 1),
             ))
 
-        if not include_generated:
-            console.print("[dim]ℹ️  Archivos auto-generados y de infraestructura excluidos. Usa --include-generated para incluirlos.[/dim]")
+        console.print("[dim]ℹ️  Solo se analiza código fuente real. Usa --include-config o --include-l10n para ver manifiestos/traducciones.[/dim]")
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {e}")
         sys.exit(1)
@@ -363,25 +371,31 @@ def coupling(
         table.add_column("Archivo A", style="cyan")
         table.add_column("Archivo B", style="magenta")
         table.add_column("Co-Commits", justify="right")
-        table.add_column("Confianza", justify="right", style="bold")
+        table.add_column("Co-dependencia", justify="right", style="bold")
         table.add_column("Diagnóstico y Acción", style="dim")
 
         for c in couplings[:15]:
             conf_color = "bold red" if c.confidence >= 0.8 else ("bold yellow" if c.confidence >= 0.6 else "bold green")
+            conf_label = f"{int(c.confidence * 100)}% (Siempre)" if c.confidence >= 0.99 else f"{int(c.confidence * 100)}%"
             table.add_row(
                 c.file_a,
                 c.file_b,
                 str(c.co_commit_count),
-                f"[{conf_color}]{int(c.confidence * 100)}%[/{conf_color}]",
+                f"[{conf_color}]{conf_label}[/{conf_color}]",
                 c.explanation,
             )
         console.print(table)
 
         high_conf = [c for c in couplings if c.confidence >= 0.8]
         if high_conf:
-            console.print(f"\n[bold red]🔴 {len(high_conf)} par(es) con confianza crítica (≥80%):[/bold red] estas dependencias no documentadas son las que más riesgo representan para refactorizaciones futuras.")
-        if not include_generated:
-            console.print("\n[dim]ℹ️  Archivos auto-generados, manifiestos de configuración y sincronizaciones de i18n excluidos para eliminar falsos positivos.[/dim]")
+            console.print(
+                f"\n[bold red]🔴 {len(high_conf)} par(es) con co-dependencia crítica (≥80%):[/bold red] "
+                f"cada vez que se modifica uno de estos archivos, casi siempre se tiene que modificar el otro obligatoriamente (fuerte acoplamiento oculto)."
+            )
+        console.print(
+            "\n[dim]ℹ️  [bold]¿Qué significa Co-dependencia?[/bold] Mide qué porcentaje de las veces que se modifica el Archivo A también se modifica el Archivo B. "
+            "Un 100% indica que están totalmente atados. Archivos generados, manifiestos y traducciones están excluidos para evitar falsos positivos.[/dim]"
+        )
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {e}")
         sys.exit(1)
