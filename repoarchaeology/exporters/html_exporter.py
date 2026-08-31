@@ -107,36 +107,40 @@ class HTMLExporter:
         </div>
 
         <div class="card" style="margin-bottom: 24px;">
-            <h2 style="margin-top: 0; color: #f59e0b;">🔥 Puntos Calientes (Top Hotspots)</h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Archivo</th>
-                        <th>Commits</th>
-                        <th>Autores</th>
-                        <th>Hotfixes</th>
-                        <th>Nivel de Riesgo</th>
-                        <th>Churn Score</th>
-                    </tr>
-                </thead>
-                <tbody>{''.join(hotspots_rows)}</tbody>
-            </table>
+            <h2 style="margin-top: 0; color: #f59e0b;">🔥 Puntos Calientes de Código (Top Hotspots)</h2>
+            <div style="overflow-x: auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Archivo</th>
+                            <th>Commits</th>
+                            <th>Autores</th>
+                            <th>Hotfixes</th>
+                            <th>Nivel de Riesgo</th>
+                            <th>Churn Score</th>
+                        </tr>
+                    </thead>
+                    <tbody>{''.join(hotspots_rows)}</tbody>
+                </table>
+            </div>
         </div>
 
         <div class="card">
-            <h2 style="margin-top: 0; color: #a855f7;">👻 Acoplamientos Fantasma Detectados</h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Archivo A</th>
-                        <th>Archivo B</th>
-                        <th>Co-Commits</th>
-                        <th>Confianza</th>
-                        <th>Detalle</th>
-                    </tr>
-                </thead>
-                <tbody>{''.join(couplings_rows)}</tbody>
-            </table>
+            <h2 style="margin-top: 0; color: #a855f7;">👻 Acoplamientos Fantasma en Código Fuente</h2>
+            <div style="overflow-x: auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Archivo A</th>
+                            <th>Archivo B</th>
+                            <th>Co-Commits</th>
+                            <th>Co-dependencia</th>
+                            <th>Diagnóstico y Acción</th>
+                        </tr>
+                    </thead>
+                    <tbody>{''.join(couplings_rows)}</tbody>
+                </table>
+            </div>
         </div>
     </div>
 </body>

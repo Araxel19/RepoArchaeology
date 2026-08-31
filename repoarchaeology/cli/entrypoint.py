@@ -145,6 +145,7 @@ def _generate_hotspot_action(file_path: str, fix_count: int, authors_count: int,
 def doctor(
     path: Path = typer.Option(Path("."), "--path", "-p", help="Ruta al repositorio Git"),
     commits_limit: int = typer.Option(200, "--commits", "-c", help="Límite de commits a analizar"),
+    html: bool = typer.Option(False, "--html", help="Genera y abre el reporte visual interactivo en HTML"),
     include_generated: bool = typer.Option(False, "--include-generated", help="Incluir archivos auto-generados"),
     include_infra: bool = typer.Option(False, "--include-infra", help="Incluir archivos de infraestructura/docs"),
     include_config: bool = typer.Option(False, "--include-config", help="Incluir manifiestos de paquetes (pubspec.yaml, package.json)"),
@@ -189,10 +190,10 @@ def doctor(
         console.print(f"\n[bold]Puntaje de Salud Histórica:[/bold] [{color} bold]{health_score} / 100[/{color} bold]")
         console.print(f"Commits analizados: [cyan]{len(commits)}[/cyan] | Archivos de código analizados: [cyan]{len(hotspots)}[/cyan]\n")
 
-        # ── Tabla compacta de métricas ──
-        table = Table(title="🔥 Archivos de Código en Mayor Riesgo", border_style="blue", show_lines=True)
+        # ── Tabla compacta de métricas (expand=True para aprovechar toda la pantalla) ──
+        table = Table(title="🔥 Archivos de Código en Mayor Riesgo", border_style="blue", show_lines=True, expand=True)
         table.add_column("#", style="dim", justify="right", width=3)
-        table.add_column("Archivo", style="cyan")
+        table.add_column("Archivo", style="cyan", no_wrap=False, overflow="fold")
         table.add_column("Tipo", style="dim")
         table.add_column("Commits", justify="right")
         table.add_column("Fixes", justify="right")
@@ -264,6 +265,27 @@ def doctor(
         else:
             console.print("\n[green]✓ No se detectaron acoplamientos fantasma significativos en la arquitectura.[/green]\n")
 
+        if html:
+            target_html = path.resolve() / "repoarch_report.html"
+            recs = [
+                f"Añadir tests unitarios y de integración prioritariamente a los {sum(1 for h in hotspots if h.risk_level == 'CRITICAL')} archivos críticos.",
+                "Revisar los acoplamientos de alta co-dependencia y evaluar si requieren desacoplamiento modular.",
+                "Programar sesiones de pair programming para distribuir el conocimiento entre autores.",
+            ]
+            report = RepoHealthReport(
+                repo_name=path.resolve().name,
+                total_commits_analyzed=len(commits),
+                total_files_analyzed=len(hotspots),
+                health_score=health_score,
+                bus_factor_score=int(100 - (bus_factors[0].ownership_percentage if bus_factors else 0)),
+                hotspots=hotspots,
+                ghost_couplings=couplings,
+                top_authors=bus_factors[:5],
+                recommendations=recs
+            )
+            HTMLExporter.export(report, target_html)
+            console.print(f"[bold green]✓ Reporte interactivo HTML con scroll/sliders generado en:[/bold green] {target_html}\n")
+
         console.print("[dim]ℹ️  Solo se analiza código fuente real. Archivos generados, manifiestos y traducciones están excluidos.[/dim]\n")
 
     except Exception as e:
@@ -295,9 +317,9 @@ def churn(
             exclude_l10n=not include_l10n,
         )
 
-        table = Table(title=f"🔥 Top {top} Puntos Calientes de Código (Code Churn)", border_style="blue", show_lines=True)
+        table = Table(title=f"🔥 Top {top} Puntos Calientes de Código (Code Churn)", border_style="blue", show_lines=True, expand=True)
         table.add_column("#", justify="right", style="dim", width=3)
-        table.add_column("Archivo", style="cyan")
+        table.add_column("Archivo", style="cyan", no_wrap=False, overflow="fold")
         table.add_column("Tipo", style="dim")
         table.add_column("Commits", justify="right")
         table.add_column("Fixes", justify="right")
@@ -367,12 +389,12 @@ def coupling(
             console.print("[green]✓ No se detectaron acoplamientos fantasma por encima del umbral configurado.[/green]")
             return
 
-        table = Table(title="👻 Acoplamientos Fantasma en Código Fuente", border_style="yellow", show_lines=True)
-        table.add_column("Archivo A", style="cyan")
-        table.add_column("Archivo B", style="magenta")
-        table.add_column("Co-Commits", justify="right")
-        table.add_column("Co-dependencia", justify="right", style="bold")
-        table.add_column("Diagnóstico y Acción", style="dim")
+        table = Table(title="👻 Acoplamientos Fantasma en Código Fuente", border_style="yellow", show_lines=True, expand=True)
+        table.add_column("Archivo A", style="cyan", ratio=4, no_wrap=False)
+        table.add_column("Archivo B", style="magenta", ratio=4, no_wrap=False)
+        table.add_column("Co-Commits", justify="right", width=10)
+        table.add_column("Co-dependencia", justify="right", width=16)
+        table.add_column("Diagnóstico y Acción", style="dim", ratio=5, no_wrap=False)
 
         for c in couplings[:15]:
             conf_color = "bold red" if c.confidence >= 0.8 else ("bold yellow" if c.confidence >= 0.6 else "bold green")
