@@ -425,7 +425,7 @@ def coupling(
 
 @app.command(name="lore")
 def lore(
-    file_path: str = typer.Argument(..., help="Ruta relativa del archivo a auditar"),
+    file_path: Optional[str] = typer.Argument(None, help="Ruta relativa del archivo a auditar"),
     path: Path = typer.Option(Path("."), "--path", "-p", help="Ruta al repositorio"),
     commits_limit: int = typer.Option(300, "--commits", "-c", help="Límite de commits")
 ):
@@ -435,7 +435,20 @@ def lore(
     try:
         engine = GitEngine(path.resolve())
         all_commits = engine.extract_commits(max_count=commits_limit)
+
+        if not file_path:
+            hotspots = engine.calculate_hotspots(all_commits)
+            if hotspots:
+                file_path = hotspots[0].file_path
+                console.print(f"[dim]ℹ️  No especificaste archivo. Analizando automáticamente el punto con mayor rotación: [bold cyan]{file_path}[/bold cyan][/dim]\n")
+            else:
+                console.print("[yellow]Debes especificar la ruta de un archivo para analizar su linaje: repoarch lore <ruta>[/yellow]")
+                return
+
         file_commits = [c for c in all_commits if any(f.endswith(file_path) or f == file_path for f in c.files_changed)]
+        if not file_commits:
+            console.print(f"[yellow]No se encontraron commits en el historial para el archivo '{file_path}'.[/yellow]")
+            return
 
         config = load_config()
         ai = AIEngine(
@@ -493,15 +506,42 @@ def scan(
     export: Optional[Path] = typer.Option(None, "--export", "-e", help="Ruta de exportación (.md, .html, .json)"),
     html: bool = typer.Option(False, "--html", help="Genera un reporte HTML interactivo"),
     include_generated: bool = typer.Option(False, "--include-generated", help="Incluir archivos auto-generados"),
+    include_infra: bool = typer.Option(False, "--include-infra", help="Incluir archivos de infraestructura"),
+    include_config: bool = typer.Option(False, "--include-config", help="Incluir manifiestos de paquetes"),
+    include_l10n: bool = typer.Option(False, "--include-l10n", help="Incluir recursos de traducción"),
 ):
     """
     📊 Ejecuta un escaneo forense completo y genera reportes en Markdown, HTML o JSON.
     """
     try:
+        if not export and not html:
+            doctor(
+                path=path,
+                commits_limit=200,
+                html=False,
+                include_generated=include_generated,
+                include_infra=include_infra,
+                include_config=include_config,
+                include_l10n=include_l10n,
+            )
+            return
+
         engine = GitEngine(path.resolve())
         commits = engine.extract_commits(max_count=400)
-        hotspots = engine.calculate_hotspots(commits, exclude_generated=not include_generated)
-        couplings = engine.detect_ghost_coupling(commits, exclude_generated=not include_generated)
+        hotspots = engine.calculate_hotspots(
+            commits,
+            exclude_generated=not include_generated,
+            exclude_infra=not include_infra,
+            exclude_config=not include_config,
+            exclude_l10n=not include_l10n,
+        )
+        couplings = engine.detect_ghost_coupling(
+            commits,
+            exclude_generated=not include_generated,
+            exclude_infra=not include_infra,
+            exclude_config_pairs=not include_config,
+            exclude_l10n_sync=not include_l10n,
+        )
         bus_factors = engine.calculate_bus_factor(commits)
         health_score = engine.calculate_health_score(commits, hotspots, couplings, bus_factors)
 
@@ -509,7 +549,7 @@ def scan(
 
         recs = [
             f"Añadir tests unitarios y de integración prioritariamente a los {critical_count} archivos críticos.",
-            "Revisar los acoplamientos de alta confianza y evaluar si requieren una interfaz intermedia.",
+            "Revisar los acoplamientos de alta co-dependencia y evaluar si requieren desacoplamiento modular.",
             "Programar sesiones de pair programming para distribuir el conocimiento entre autores.",
             "Documentar las dependencias implícitas encontradas en los acoplamientos fantasma.",
         ]
@@ -538,9 +578,7 @@ def scan(
         elif html:
             target_html = path.resolve() / "repoarch_report.html"
             HTMLExporter.export(report, target_html)
-            console.print(f"[bold green]✓ Reporte interactivo HTML generado en:[/bold green] {target_html}")
-        else:
-            doctor(path=path)
+            console.print(f"[bold green]✓ Reporte interactivo HTML con scroll/sliders generado en:[/bold green] {target_html}")
     except Exception as e:
         console.print(f"[bold red]Error durante el escaneo:[/bold red] {e}")
         sys.exit(1)
@@ -552,3 +590,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
