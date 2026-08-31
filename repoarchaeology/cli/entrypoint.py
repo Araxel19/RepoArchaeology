@@ -62,19 +62,86 @@ def update_cmd():
 
 
 def _generate_hotspot_action(file_path: str, fix_count: int, authors_count: int, top_author_pct: float) -> str:
-    """Genera una recomendación concreta y accionable para cada hotspot."""
-    role = get_file_role(file_path)
+    """
+    Genera una recomendación concreta, contextual al tipo de archivo y sus métricas.
+    Evita sugerir acciones que no aplican (ej: tests a un archivo YAML de configuración).
+    """
+    fp = file_path.lower()
     name = Path(file_path).name
+    ext = Path(file_path).suffix.lower()
 
-    if fix_count >= 5:
-        return f"Alta tasa de correcciones ({fix_count} fixes). Considera añadir tests unitarios que cubran los casos que fallan."
-    if top_author_pct >= 90.0:
-        return f"Casi exclusivo de un autor. Programa una sesión de revisión de código para transferir conocimiento."
-    if authors_count >= 4:
-        return f"Demasiados autores ({authors_count}) sin coordinación. Define un propietario claro con responsabilidad sobre {name}."
+    # ── Archivos de localización / traducción (.arb, .po, .strings) ────────────
+    if ext in (".arb",) or "l10n" in fp or "locali" in fp or "i18n" in fp or "intl" in fp:
+        if fix_count >= 3:
+            return f"Traducciones con {fix_count} correcciones. Automatiza la validación de claves ausentes en CI para evitar que falten textos en algún idioma."
+        if authors_count >= 3:
+            return "Múltiples autores editando traducciones. Define un flujo claro: un PR por idioma o uso de Crowdin/Lokalise para centralizar el proceso."
+        return "Recurso de localización con alta rotación. Considera un script que verifique que todos los idiomas tengan las mismas claves antes de hacer merge."
+
+    # ── Archivos de configuración de proyecto (pubspec.yaml, package.json…) ────
     if is_high_level_config(file_path):
-        return f"Archivo de configuración con cambios frecuentes. Evalúa si los cambios son versionados correctamente y documentados."
-    return f"Alta rotación de código. Evalúa si {name} tiene demasiadas responsabilidades y puede dividirse."
+        if fix_count >= 5:
+            return f"Dependencias corregidas {fix_count} veces. Ejecuta `dependency audit` periódicamente y fija versiones exactas para evitar roturas silenciosas."
+        if authors_count >= 3:
+            return "Múltiples personas tocando las dependencias. Designa un responsable de dependencias y usa un bot (Dependabot/Renovate) para actualizaciones automáticas."
+        return "Alta rotación en las dependencias. Considera usar rangos semánticos controlados y documentar el motivo de cada cambio de versión en el CHANGELOG."
+
+    # ── Archivos de autenticación / seguridad ───────────────────────────────────
+    if any(w in fp for w in ["auth", "login", "session", "token", "credential", "secret", "jwt", "oauth", "permission", "role"]):
+        if fix_count >= 3:
+            return f"Componente de autenticación con {fix_count} correcciones. Cada cambio aquí es un riesgo de seguridad. Agrega revisión obligatoria de seguridad (security review) antes de mergear."
+        if top_author_pct >= 85:
+            return "Autenticación casi exclusiva de un autor. Documenta el flujo completo y haz al menos una revisión cruzada por sprint para no depender de una sola persona en lo más crítico."
+        return "Lógica de autenticación con alta rotación. Asegúrate de tener tests de integración que cubran los flujos de login, logout y renovación de sesión."
+
+    # ── Pantallas / páginas de UI (screen, page, view) ─────────────────────────
+    if any(w in fp for w in ["screen", "page", "view", "_ui", "widget", "component", "dialog", "modal", "sheet"]):
+        if fix_count >= 5:
+            return f"Pantalla con {fix_count} correcciones. Probablemente tiene demasiada lógica mezclada con la UI. Extrae la lógica de negocio a un ViewModel o Bloc y agrega widget tests."
+        if authors_count >= 4:
+            return f"Pantalla modificada por {authors_count} autores sin coordinación. Define si el componente pertenece a una feature específica y asigna un responsable."
+        if top_author_pct >= 90:
+            return "UI crítica con un único autor. Programa una revisión de diseño y asegúrate de que hay al menos un widget test para los flujos principales."
+        return "Alta rotación en la UI. Considera dividir el archivo en widgets más pequeños y reutilizables para facilitar el mantenimiento."
+
+    # ── Rutas / controladores de API ────────────────────────────────────────────
+    if any(w in fp for w in ["route", "router", "controller", "handler", "endpoint", "api"]):
+        if fix_count >= 4:
+            return f"Ruta o controlador con {fix_count} correcciones. Define contratos claros (OpenAPI/Swagger) para cada endpoint y agrega tests de integración de API."
+        if authors_count >= 3:
+            return f"Múltiples autores en el controlador. Establece una convención de respuestas API y valida que todos los endpoints usen el mismo formato de error."
+        return "Alta rotación en rutas. Asegúrate de documentar los parámetros, respuestas y casos de error de cada endpoint."
+
+    # ── Servicios / lógica de negocio ───────────────────────────────────────────
+    if any(w in fp for w in ["service", "usecase", "use_case", "interactor", "domain", "repository", "repo"]):
+        if fix_count >= 4:
+            return f"Servicio con {fix_count} correcciones en el historial. Agrega tests unitarios que cubran los casos de error específicos que generaron esos fixes."
+        if top_author_pct >= 90:
+            return "Servicio dominado por un autor. Documenta los contratos de entrada/salida y transfiere conocimiento con una sesión de pair programming."
+        return "Lógica de negocio con alta rotación. Verifica que las responsabilidades están bien delimitadas y que no hay lógica de presentación mezclada."
+
+    # ── Esquemas de base de datos / migraciones ──────────────────────────────────
+    if any(w in fp for w in ["migration", "schema", "seed", "database", "db", ".sql"]):
+        if fix_count >= 3:
+            return f"Esquema de base de datos con {fix_count} correcciones. Revisa que todas las migraciones sean reversibles (down migrations) y estén probadas en un entorno de staging."
+        return "Base de datos con alta rotación. Documenta cada migración con el motivo del cambio y verifica que no hay datos perdidos en el proceso."
+
+    # ── Tests ────────────────────────────────────────────────────────────────────
+    if any(w in fp for w in ["_test.", "test_", "/test/", "/tests/", "spec.", "_spec."]):
+        return "El propio archivo de tests cambia frecuentemente. Verifica que los tests son estables y no están acoplados a detalles de implementación que cambian seguido."
+
+    # ── Archivos de scripts / CI / configuración de entorno ─────────────────────
+    if ext in (".sh", ".bash", ".ps1", ".bat") or any(w in fp for w in ["dockerfile", "docker-compose", "ci", "pipeline", "workflow"]):
+        return "Script de infraestructura con alta rotación. Considera parametrizar las variables de entorno y agregar al menos una prueba de smoke test en el pipeline."
+
+    # ── Fallback genérico pero con variación por métricas ───────────────────────
+    if fix_count >= 5:
+        return f"Alta tasa de correcciones ({fix_count} fixes en el historial). Analiza qué tipo de errores se repiten y si hay un patrón que pueda prevenirse con mejores abstracciones."
+    if top_author_pct >= 90:
+        return f"Archivo casi exclusivo de un autor ({top_author_pct}%). Incluye a otro desarrollador en las revisiones de PR para distribuir el conocimiento gradualmente."
+    if authors_count >= 4:
+        return f"Demasiados autores ({authors_count}) sin un propietario claro. Define quién tiene la última palabra en los cambios a este archivo para evitar inconsistencias."
+    return f"Alta rotación de código. Evalúa si {name} tiene demasiadas responsabilidades y podría dividirse en partes más pequeñas."
 
 
 @app.command(name="doctor")
